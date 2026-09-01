@@ -797,7 +797,6 @@ def generate_more_logos(
             ),
         )
 
-
 # =========================================================
 # 7. SELECT LOGO + COLORS + VIDEO
 # =========================================================
@@ -820,7 +819,6 @@ def select_logo(
         )
         .first()
     )
-
 
     if not project:
 
@@ -927,23 +925,25 @@ def select_logo(
         if not brand_kit:
 
             brand_kit = BrandKit(
-                project_id=
-                project.id,
+                project_id=project.id,
 
-                primary_color=
-                palette[
-                    "primary_color"
-                ],
+                primary_color=(
+                    palette[
+                        "primary_color"
+                    ]
+                ),
 
-                secondary_color=
-                palette[
-                    "secondary_color"
-                ],
+                secondary_color=(
+                    palette[
+                        "secondary_color"
+                    ]
+                ),
 
-                accent_color=
-                palette[
-                    "accent_color"
-                ],
+                accent_color=(
+                    palette[
+                        "accent_color"
+                    ]
+                ),
             )
 
             db.add(
@@ -972,16 +972,67 @@ def select_logo(
 
 
         # -----------------------------------------
-        # CREATE VIDEO
+        # READ PERSONALITY FROM BRAND KIT
+        # -----------------------------------------
+
+        try:
+
+            personality = (
+                json.loads(
+                    brand_kit.personality
+                )
+                if brand_kit.personality
+                else []
+            )
+
+        except Exception:
+
+            personality = []
+
+
+        # -----------------------------------------
+        # CREATE BRAND INTELLIGENCE VIDEO
         # -----------------------------------------
 
         video_path = (
             generate_promotional_video(
+
                 logo_path=logo_path,
 
                 output_directory=(
                     GENERATED_DIR
                 ),
+
+                business_name=(
+                    project.business_name
+                ),
+
+                slogan=(
+                    brand_kit.slogan
+                    or ""
+                ),
+
+                personality=(
+                    personality
+                ),
+
+                marketing_message=(
+                    brand_kit.marketing_message
+                    or ""
+                ),
+
+                primary_color=(
+                    brand_kit.primary_color
+                ),
+
+                secondary_color=(
+                    brand_kit.secondary_color
+                ),
+
+                accent_color=(
+                    brand_kit.accent_color
+                ),
+
             )
         )
 
@@ -1003,22 +1054,33 @@ def select_logo(
 
             prompt=(
                 "Automatic promotional "
-                "video from selected logo"
+                "video from selected logo "
+                "and brand intelligence"
             ),
 
             is_selected=False,
         )
 
 
-        db.add(video)
+        db.add(
+            video
+        )
 
 
         db.commit()
 
 
-        db.refresh(logo)
-        db.refresh(brand_kit)
-        db.refresh(video)
+        db.refresh(
+            logo
+        )
+
+        db.refresh(
+            brand_kit
+        )
+
+        db.refresh(
+            video
+        )
 
 
         return {
@@ -1059,8 +1121,6 @@ def select_logo(
                 "Could not finalize brand."
             ),
         )
-
-
 # =========================================================
 # 8. GET ASSETS
 # =========================================================
