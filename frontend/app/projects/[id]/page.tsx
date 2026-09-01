@@ -45,9 +45,20 @@ interface Asset {
 interface BrandKit {
   id: string;
   project_id: string;
+
   primary_color: string;
   secondary_color: string;
   accent_color: string;
+
+  slogan: string | null;
+  personality: string[];
+  tone: string | null;
+  target_audience: string | null;
+  marketing_message: string | null;
+
+  heading_font: string | null;
+  body_font: string | null;
+
   created_at: string;
 }
 
@@ -154,11 +165,9 @@ export default function ProjectPage() {
             projectData.project
           );
 
-
           setAssets(
             assetsData.assets
           );
-
 
           setBrandKit(
             brandKitData.brand_kit
@@ -198,7 +207,7 @@ export default function ProjectPage() {
 
 
   // ======================================================
-  // GENERATE 3 MORE
+  // GENERATE 3 MORE LOGOS
   // ======================================================
 
   async function generateMore() {
@@ -206,7 +215,6 @@ export default function ProjectPage() {
     try {
 
       setGenerating(true);
-
       setError("");
 
 
@@ -375,7 +383,7 @@ export default function ProjectPage() {
     );
 
 
-  // Only show newest three concepts.
+  // Keep dashboard compact.
   const visibleLogos =
     logos.slice(0, 3);
 
@@ -459,9 +467,7 @@ export default function ProjectPage() {
     <main className="min-h-screen bg-slate-950 text-white">
 
 
-      {/* ================================================
-          NAVIGATION
-      ================================================ */}
+      {/* NAVIGATION */}
 
       <nav className="border-b border-slate-800">
 
@@ -487,10 +493,6 @@ export default function ProjectPage() {
       </nav>
 
 
-      {/* ================================================
-          CONTENT
-      ================================================ */}
-
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
 
 
@@ -500,7 +502,7 @@ export default function ProjectPage() {
 
         <div className="mb-8">
 
-          <span className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-400">
+          <span className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-medium capitalize text-violet-400">
             {project.industry}
           </span>
 
@@ -519,7 +521,7 @@ export default function ProjectPage() {
 
             Brand style:{" "}
 
-            <span className="font-medium text-slate-300">
+            <span className="font-medium capitalize text-slate-300">
               {project.style}
             </span>
 
@@ -528,15 +530,184 @@ export default function ProjectPage() {
         </div>
 
 
-        {/* ================================================
-            ERROR
-        ================================================ */}
+        {/* ERROR */}
 
         {error && (
 
           <div className="mb-6 rounded-xl border border-red-800 bg-red-950/40 p-4 text-sm text-red-300">
             {error}
           </div>
+
+        )}
+
+
+        {/* ================================================
+            BRAND INTELLIGENCE
+        ================================================ */}
+
+        {brandKit && (
+
+          <section className="mb-6 rounded-2xl border border-violet-500/20 bg-slate-900 p-5 sm:p-6">
+
+
+            <p className="text-xs font-bold tracking-wide text-violet-400">
+              LOCAL AI BRAND STRATEGY
+            </p>
+
+
+            <h2 className="mt-1 text-xl font-bold sm:text-2xl">
+              Brand Intelligence
+            </h2>
+
+
+            <p className="mt-2 text-sm text-slate-400">
+              Generated locally from your company
+              information using Ollama.
+            </p>
+
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+
+
+              {/* SLOGAN */}
+
+              <StrategyCard
+                title="Slogan"
+              >
+
+                <p className="text-lg font-semibold text-white">
+                  &ldquo;
+                  {brandKit.slogan ||
+                    "Building a better brand."}
+                  &rdquo;
+                </p>
+
+              </StrategyCard>
+
+
+              {/* PERSONALITY */}
+
+              <StrategyCard
+                title="Brand Personality"
+              >
+
+                <div className="flex flex-wrap gap-2">
+
+                  {brandKit.personality &&
+                  brandKit.personality.length > 0 ? (
+
+                    brandKit.personality.map(
+                      (trait) => (
+
+                        <span
+                          key={trait}
+                          className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-300"
+                        >
+                          {trait}
+                        </span>
+
+                      )
+                    )
+
+                  ) : (
+
+                    <p className="text-sm text-slate-400">
+                      Professional
+                    </p>
+
+                  )}
+
+                </div>
+
+              </StrategyCard>
+
+
+              {/* TARGET */}
+
+              <StrategyCard
+                title="Target Audience"
+              >
+
+                <p className="text-sm leading-6 text-slate-300">
+                  {brandKit.target_audience ||
+                    "Target customer information"}
+                </p>
+
+              </StrategyCard>
+
+
+              {/* TONE */}
+
+              <StrategyCard
+                title="Tone of Voice"
+              >
+
+                <p className="text-sm leading-6 text-slate-300">
+                  {brandKit.tone ||
+                    "Professional and approachable"}
+                </p>
+
+              </StrategyCard>
+
+
+              {/* TYPOGRAPHY */}
+
+              <StrategyCard
+                title="Typography"
+              >
+
+                <div className="grid grid-cols-2 gap-3">
+
+
+                  <div>
+
+                    <p className="text-xs text-slate-500">
+                      Heading
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold">
+                      {brandKit.heading_font ||
+                        "Montserrat"}
+                    </p>
+
+                  </div>
+
+
+                  <div>
+
+                    <p className="text-xs text-slate-500">
+                      Body
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold">
+                      {brandKit.body_font ||
+                        "Inter"}
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </StrategyCard>
+
+
+              {/* MARKETING MESSAGE */}
+
+              <StrategyCard
+                title="Marketing Message"
+              >
+
+                <p className="text-sm leading-6 text-slate-300">
+                  {brandKit.marketing_message ||
+                    "Your brand marketing message."}
+                </p>
+
+              </StrategyCard>
+
+
+            </div>
+
+          </section>
 
         )}
 
@@ -565,7 +736,7 @@ export default function ProjectPage() {
 
               <p className="mt-2 text-sm text-slate-400">
                 Select one logo to automatically
-                complete your brand kit and video.
+                complete your final palette and video.
               </p>
 
             </div>
@@ -587,8 +758,6 @@ export default function ProjectPage() {
           </div>
 
 
-          {/* LOGO GRID */}
-
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
 
 
@@ -605,7 +774,7 @@ export default function ProjectPage() {
                 >
 
 
-                  {/* IMAGE */}
+                  {/* LOGO IMAGE */}
 
                   <div className="relative flex h-52 items-center justify-center bg-white p-4 sm:h-56">
 
@@ -628,8 +797,6 @@ export default function ProjectPage() {
                   </div>
 
 
-                  {/* CARD CONTENT */}
-
                   <div className="p-4">
 
 
@@ -638,7 +805,7 @@ export default function ProjectPage() {
                     </p>
 
 
-                    {/* PALETTE */}
+                    {/* PREVIEW PALETTE */}
 
                     {logo.palette && (
 
@@ -677,7 +844,7 @@ export default function ProjectPage() {
                                 />
 
 
-                                <p className="mt-1 text-center font-mono text-[10px] text-slate-500">
+                                <p className="mt-1 text-center font-mono text-[9px] text-slate-500">
                                   {color}
                                 </p>
 
@@ -693,7 +860,7 @@ export default function ProjectPage() {
                     )}
 
 
-                    {/* SELECT */}
+                    {/* CHOOSE LOGO */}
 
                     <button
                       type="button"
@@ -710,7 +877,7 @@ export default function ProjectPage() {
                         logo.is_selected
                           ? "bg-emerald-500/15 text-emerald-300"
                           : "bg-violet-600 hover:bg-violet-500"
-                      } disabled:cursor-not-allowed`}
+                      } disabled:cursor-not-allowed disabled:opacity-70`}
                     >
 
                       {logo.is_selected
@@ -747,7 +914,7 @@ export default function ProjectPage() {
 
 
         {/* ================================================
-            SELECTED BRAND
+            FINAL BRAND
         ================================================ */}
 
         {selectedLogo && (
@@ -772,7 +939,7 @@ export default function ProjectPage() {
             <div className="grid gap-4 md:grid-cols-2">
 
 
-              {/* SELECTED LOGO */}
+              {/* FINAL LOGO */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
 
@@ -813,7 +980,7 @@ export default function ProjectPage() {
               </div>
 
 
-              {/* BRAND PALETTE */}
+              {/* FINAL COLOR PALETTE */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
 
@@ -824,8 +991,8 @@ export default function ProjectPage() {
 
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Extracted automatically from
-                  your selected logo.
+                  Extracted automatically from your
+                  selected logo.
                 </p>
 
 
@@ -880,7 +1047,7 @@ export default function ProjectPage() {
 
 
         {/* ================================================
-            VIDEO
+            PROMOTIONAL VIDEO
         ================================================ */}
 
         {selectedLogo && (
@@ -899,8 +1066,8 @@ export default function ProjectPage() {
 
 
             <p className="mt-2 text-sm text-slate-400">
-              Automatically created from
-              your selected brand identity.
+              Automatically created using your
+              selected brand identity.
             </p>
 
 
@@ -910,7 +1077,7 @@ export default function ProjectPage() {
 
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-fuchsia-500" />
 
-                Generating video...
+                Generating promotional video...
 
               </div>
 
@@ -972,7 +1139,73 @@ export default function ProjectPage() {
 
 
         {/* ================================================
-            SMALL SUMMARY
+            DOWNLOAD COMPLETE BRAND PACKAGE
+        ================================================ */}
+
+        {selectedLogo && brandKit && (
+
+          <section className="mt-6 rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-950/30 to-slate-900 p-5 sm:p-6">
+
+
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+
+
+              <div>
+
+
+                <p className="text-xs font-bold tracking-wide text-emerald-400">
+                  BRAND PACKAGE
+                </p>
+
+
+                <h2 className="mt-1 text-xl font-bold">
+                  Download Complete Brand Kit
+                </h2>
+
+
+                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+                  Download your selected logo,
+                  promotional video, brand guidelines
+                  PDF and structured brand information
+                  together in one ZIP file.
+                </p>
+
+
+                <div className="mt-3 flex flex-wrap gap-2">
+
+
+                  <PackageBadge text="PNG Logo" />
+
+                  <PackageBadge text="MP4 Video" />
+
+                  <PackageBadge text="PDF Guidelines" />
+
+                  <PackageBadge text="JSON Data" />
+
+
+                </div>
+
+              </div>
+
+
+              <a
+                href={`${API}/projects/${projectId}/download-package`}
+                className="shrink-0 rounded-lg bg-emerald-600 px-6 py-3 text-center text-sm font-semibold transition hover:bg-emerald-500"
+              >
+                ↓ Download Package
+              </a>
+
+
+            </div>
+
+
+          </section>
+
+        )}
+
+
+        {/* ================================================
+            SUMMARY
         ================================================ */}
 
         <section className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -996,7 +1229,9 @@ export default function ProjectPage() {
 
           <SummaryCard
             title="Videos"
-            value={videos.length}
+            value={
+              videos.length
+            }
           />
 
 
@@ -1006,6 +1241,38 @@ export default function ProjectPage() {
       </section>
 
     </main>
+
+  );
+
+}
+
+
+// ======================================================
+// STRATEGY CARD
+// ======================================================
+
+function StrategyCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+
+  return (
+
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+
+
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        {title}
+      </p>
+
+
+      {children}
+
+
+    </div>
 
   );
 
@@ -1032,12 +1299,14 @@ function ColorCard({
       <div
         className="h-11 w-11 shrink-0 rounded-md border border-white/10"
         style={{
-          backgroundColor: color,
+          backgroundColor:
+            color,
         }}
       />
 
 
       <div>
+
 
         <p className="text-xs text-slate-500">
           {label}
@@ -1048,9 +1317,32 @@ function ColorCard({
           {color}
         </p>
 
+
       </div>
 
+
     </div>
+
+  );
+
+}
+
+
+// ======================================================
+// PACKAGE BADGE
+// ======================================================
+
+function PackageBadge({
+  text,
+}: {
+  text: string;
+}) {
+
+  return (
+
+    <span className="rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1 text-[10px] font-medium text-slate-400">
+      {text}
+    </span>
 
   );
 

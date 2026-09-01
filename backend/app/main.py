@@ -1,7 +1,8 @@
 import json
 import uuid
 from pathlib import Path
-
+from fastapi.responses import FileResponse
+from .services.brand_package import create_brand_package
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -1209,3 +1210,203 @@ def get_brand_kit(
             brand_kit
         )
     }
+    # =========================================================
+# 10. DOWNLOAD COMPLETE BRAND PACKAGE
+# =========================================================
+
+@app.get(
+    "/projects/{project_id}/download-package"
+)
+def download_brand_package(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id == project_id
+        )
+        .first()
+    )
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+
+    # =====================================================
+    # FIND BRAND KIT
+    # =====================================================
+
+    brand_kit = (
+        db.query(BrandKit)
+        .filter(
+            BrandKit.project_id
+            == project.id
+        )
+        .first()
+    )
+
+
+    if not brand_kit:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Brand kit has not "
+                "been generated."
+            ),
+        )
+
+
+    # =====================================================
+    # FIND SELECTED LOGO
+    # =====================================================
+
+    selected_logo = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id
+            == project.id,
+
+            Asset.asset_type
+            == "logo",
+
+            Asset.is_selected.is_(
+                True
+            ),
+        )
+        .first()
+    )
+
+
+    if not selected_logo:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select a logo first."
+            ),
+        )
+
+
+    logo_path = (
+        get_local_path(
+            selected_logo
+        )
+    )
+
+
+    if (
+        logo_path is None
+        or not logo_path.exists()
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Selected logo file "
+                "was not found."
+            ),
+        )
+
+
+    # =====================================================
+    # FIND LATEST VIDEO
+    # =====================================================
+
+    latest_video = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id
+            == project.id,
+
+            Asset.asset_type
+            == "video",
+        )
+        .order_by(
+            Asset.created_at.desc()
+        )
+        .first()
+    )
+
+
+    video_path = None
+
+
+    if latest_video:
+
+        candidate = (
+            get_local_path(
+                latest_video
+            )
+        )
+
+
+        if (
+            candidate
+            and candidate.exists()
+        ):
+
+            video_path = (
+                candidate
+            )
+
+
+    # =====================================================
+    # CREATE PACKAGE
+    # =====================================================
+
+    try:
+
+        package_path = (
+            create_brand_package(
+                project=project,
+
+                brand_kit=brand_kit,
+
+                logo_path=logo_path,
+
+                video_path=video_path,
+
+                output_directory=(
+                    GENERATED_DIR
+                ),
+            )
+        )
+
+
+        return FileResponse(
+            path=str(
+                package_path
+            ),
+
+            filename=(
+                package_path.name
+            ),
+
+            media_type=(
+                "application/zip"
+            ),
+        )
+
+
+    except Exception as error:
+
+        print(
+            "Brand package error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not create "
+                "brand package."
+            ),
+        )
