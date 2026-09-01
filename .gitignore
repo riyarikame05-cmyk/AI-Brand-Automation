@@ -1,0 +1,28 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/app/__pycache__/
+backend/app/services/__pycache__/
+*.pyc
+
+# Environment variables / secrets
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Generated assets
+backend/generated/
+*.mp4
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+
+# Logs
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
