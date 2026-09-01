@@ -1,3 +1,4 @@
+import json
 import uuid
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import Asset, BrandKit, Project
+from .services.brand_intelligence import generate_brand_intelligence
 from .services.color_extractor import extract_dominant_colors
 from .services.image_generator import generate_logo_image
 from .services.video_generator import generate_promotional_video
@@ -20,13 +22,13 @@ from .services.video_generator import generate_promotional_video
 
 app = FastAPI(
     title="AI Brand Automation API",
-    description="Automated branding system",
-    version="3.0.0",
+    description="Local AI-powered brand automation system",
+    version="4.0.0",
 )
 
 
 # =========================================================
-# GENERATED DIRECTORY
+# GENERATED FILES
 # =========================================================
 
 GENERATED_DIR = (
@@ -65,7 +67,7 @@ app.add_middleware(
 
 
 # =========================================================
-# REQUEST MODEL
+# REQUEST MODELS
 # =========================================================
 
 class BrandRequest(BaseModel):
@@ -76,13 +78,36 @@ class BrandRequest(BaseModel):
 
 
 # =========================================================
-# HELPERS
+# SERIALIZATION HELPERS
 # =========================================================
+
+def project_to_dict(project: Project):
+
+    return {
+        "id": str(project.id),
+
+        "business_name":
+        project.business_name,
+
+        "description":
+        project.description,
+
+        "industry":
+        project.industry,
+
+        "style":
+        project.style,
+
+        "created_at":
+        project.created_at,
+    }
+
 
 def asset_to_dict(asset: Asset):
 
     return {
-        "id": str(asset.id),
+        "id":
+        str(asset.id),
 
         "project_id":
         str(asset.project_id),
@@ -104,30 +129,24 @@ def asset_to_dict(asset: Asset):
     }
 
 
-def project_to_dict(project: Project):
+def brand_kit_to_dict(
+    brand_kit: BrandKit,
+):
 
-    return {
-        "id":
-        str(project.id),
+    try:
 
-        "business_name":
-        project.business_name,
+        personality = (
+            json.loads(
+                brand_kit.personality
+            )
+            if brand_kit.personality
+            else []
+        )
 
-        "description":
-        project.description,
+    except Exception:
 
-        "industry":
-        project.industry,
+        personality = []
 
-        "style":
-        project.style,
-
-        "created_at":
-        project.created_at,
-    }
-
-
-def brand_kit_to_dict(brand_kit: BrandKit):
 
     return {
         "id":
@@ -145,12 +164,39 @@ def brand_kit_to_dict(brand_kit: BrandKit):
         "accent_color":
         brand_kit.accent_color,
 
+        "slogan":
+        brand_kit.slogan,
+
+        "personality":
+        personality,
+
+        "tone":
+        brand_kit.tone,
+
+        "target_audience":
+        brand_kit.target_audience,
+
+        "marketing_message":
+        brand_kit.marketing_message,
+
+        "heading_font":
+        brand_kit.heading_font,
+
+        "body_font":
+        brand_kit.body_font,
+
         "created_at":
         brand_kit.created_at,
     }
 
 
-def get_local_path(asset: Asset):
+# =========================================================
+# FILE / COLOR HELPERS
+# =========================================================
+
+def get_local_path(
+    asset: Asset,
+):
 
     if "/generated/" not in asset.url:
         return None
@@ -165,26 +211,42 @@ def get_local_path(asset: Asset):
     )
 
 
-def extract_palette(file_path: Path):
+def extract_palette(
+    file_path: Path,
+):
 
-    colors = extract_dominant_colors(
-        file_path,
-        number_of_colors=3,
+    colors = (
+        extract_dominant_colors(
+            file_path,
+            number_of_colors=3,
+        )
     )
 
+
     if len(colors) < 3:
+
         raise ValueError(
-            "Could not extract three colors."
+            "Could not extract 3 colors."
         )
 
+
     return {
-        "primary_color": colors[0],
-        "secondary_color": colors[1],
-        "accent_color": colors[2],
+        "primary_color":
+        colors[0],
+
+        "secondary_color":
+        colors[1],
+
+        "accent_color":
+        colors[2],
     }
 
 
-def generate_logo_concepts(
+# =========================================================
+# LOGO GENERATION HELPER
+# =========================================================
+
+def create_logo_concepts(
     project: Project,
     db: Session,
     count: int = 3,
@@ -192,43 +254,54 @@ def generate_logo_concepts(
 
     concepts = []
 
+
     for number in range(count):
 
-        image_bytes = generate_logo_image(
-            business_name=(
-                project.business_name
-            ),
-            industry=(
-                project.industry
-            ),
-            style=(
-                project.style
-            ),
-            description=(
-                project.description
-            ),
+        image_bytes = (
+            generate_logo_image(
+                business_name=(
+                    project.business_name
+                ),
+                industry=(
+                    project.industry
+                ),
+                style=(
+                    project.style
+                ),
+                description=(
+                    project.description
+                ),
+            )
         )
+
 
         filename = (
             f"{project.id}-"
             f"{uuid.uuid4()}.png"
         )
 
+
         file_path = (
-            GENERATED_DIR / filename
+            GENERATED_DIR
+            / filename
         )
+
 
         file_path.write_bytes(
             image_bytes
         )
+
 
         image_url = (
             "http://127.0.0.1:8000/"
             f"generated/{filename}"
         )
 
+
         asset = Asset(
-            project_id=project.id,
+            project_id=(
+                project.id
+            ),
 
             asset_type="logo",
 
@@ -243,12 +316,17 @@ def generate_logo_concepts(
             is_selected=False,
         )
 
+
         db.add(asset)
         db.flush()
 
-        palette = extract_palette(
-            file_path
+
+        palette = (
+            extract_palette(
+                file_path
+            )
         )
+
 
         concepts.append({
             "asset":
@@ -257,6 +335,7 @@ def generate_logo_concepts(
             "palette":
             palette,
         })
+
 
     return concepts
 
@@ -282,12 +361,13 @@ def home():
 def health():
 
     return {
-        "status": "ok"
+        "status":
+        "ok"
     }
 
 
 # =========================================================
-# 3. CREATE BRAND + AUTOMATIC LOGOS
+# 3. CREATE COMPLETE BRAND
 # =========================================================
 
 @app.post("/brand")
@@ -304,52 +384,225 @@ def create_brand(
 
         project = Project(
             business_name=(
-                brand.business_name
+                brand.business_name.strip()
             ),
+
             description=(
-                brand.description
+                brand.description.strip()
             ),
+
             industry=(
-                brand.industry
+                brand.industry.strip()
             ),
+
             style=(
-                brand.style
+                brand.style.strip()
             ),
         )
 
+
         db.add(project)
         db.flush()
+
+
+        # -----------------------------------------
+        # LOCAL AI BRAND INTELLIGENCE
+        # -----------------------------------------
+
+        try:
+
+            intelligence = (
+                generate_brand_intelligence(
+                    business_name=(
+                        project.business_name
+                    ),
+
+                    industry=(
+                        project.industry
+                    ),
+
+                    description=(
+                        project.description
+                    ),
+
+                    style=(
+                        project.style
+                    ),
+                )
+            )
+
+
+        except Exception as error:
+
+            print(
+                "Ollama generation error:",
+                repr(error),
+            )
+
+
+            # System still works if Ollama
+            # temporarily isn't available.
+
+            intelligence = {
+                "slogan":
+                "Built For What Comes Next",
+
+                "personality": [
+                    "Professional",
+                    "Modern",
+                    "Reliable",
+                ],
+
+                "tone":
+                "Clear, confident and professional",
+
+                "target_audience":
+                "Customers seeking quality and reliability",
+
+                "marketing_message":
+                (
+                    "A modern brand built around "
+                    "quality, trust and customer value."
+                ),
+
+                "typography": {
+                    "heading":
+                    "Montserrat",
+
+                    "body":
+                    "Inter",
+                },
+            }
+
+
+        # -----------------------------------------
+        # CREATE INITIAL BRAND KIT
+        # -----------------------------------------
+
+        typography = (
+            intelligence.get(
+                "typography",
+                {},
+            )
+        )
+
+
+        personality = (
+            intelligence.get(
+                "personality",
+                [],
+            )
+        )
+
+
+        brand_kit = BrandKit(
+            project_id=(
+                project.id
+            ),
+
+            # Temporary colours.
+            # Replaced when logo is selected.
+            primary_color="#111827",
+            secondary_color="#6366F1",
+            accent_color="#8B5CF6",
+
+            slogan=(
+                intelligence.get(
+                    "slogan",
+                    "",
+                )
+            ),
+
+            personality=(
+                json.dumps(
+                    personality
+                )
+            ),
+
+            tone=(
+                intelligence.get(
+                    "tone",
+                    "",
+                )
+            ),
+
+            target_audience=(
+                intelligence.get(
+                    "target_audience",
+                    "",
+                )
+            ),
+
+            marketing_message=(
+                intelligence.get(
+                    "marketing_message",
+                    "",
+                )
+            ),
+
+            heading_font=(
+                typography.get(
+                    "heading",
+                    "Montserrat",
+                )
+            ),
+
+            body_font=(
+                typography.get(
+                    "body",
+                    "Inter",
+                )
+            ),
+        )
+
+
+        db.add(brand_kit)
+        db.flush()
+
 
         # -----------------------------------------
         # AUTOMATICALLY GENERATE 3 LOGOS
         # -----------------------------------------
 
         concepts = (
-            generate_logo_concepts(
+            create_logo_concepts(
                 project=project,
                 db=db,
                 count=3,
             )
         )
 
+
+        # -----------------------------------------
+        # SAVE EVERYTHING
+        # -----------------------------------------
+
         db.commit()
+
         db.refresh(project)
+        db.refresh(brand_kit)
+
 
         for concept in concepts:
+
             db.refresh(
                 concept["asset"]
             )
 
-        # -----------------------------------------
-        # RETURN EVERYTHING
-        # -----------------------------------------
 
         return {
             "message":
-            "Brand and logo concepts generated successfully",
+            "Complete brand generated",
 
             "project":
-            project_to_dict(project),
+            project_to_dict(
+                project
+            ),
+
+            "brand_kit":
+            brand_kit_to_dict(
+                brand_kit
+            ),
 
             "concepts": [
                 {
@@ -366,26 +619,28 @@ def create_brand(
             ],
         }
 
+
     except Exception as error:
 
         db.rollback()
 
+
         print(
-            "Brand creation error:",
+            "Create brand error:",
             repr(error),
         )
+
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "Could not create "
-                "brand identity"
+                "Could not generate brand."
             ),
         )
 
 
 # =========================================================
-# 4. GET ALL PROJECTS
+# 4. PROJECT LIST
 # =========================================================
 
 @app.get("/projects")
@@ -401,9 +656,12 @@ def get_projects(
         .all()
     )
 
+
     return {
         "projects": [
-            project_to_dict(project)
+            project_to_dict(
+                project
+            )
 
             for project
             in projects
@@ -426,10 +684,12 @@ def get_project(
     project = (
         db.query(Project)
         .filter(
-            Project.id == project_id
+            Project.id
+            == project_id
         )
         .first()
     )
+
 
     if not project:
 
@@ -438,14 +698,17 @@ def get_project(
             detail="Project not found",
         )
 
+
     return {
         "project":
-        project_to_dict(project)
+        project_to_dict(
+            project
+        )
     }
 
 
 # =========================================================
-# 6. GENERATE ANOTHER 3 CONCEPTS
+# 6. GENERATE 3 MORE LOGOS
 # =========================================================
 
 @app.post(
@@ -459,10 +722,12 @@ def generate_more_logos(
     project = (
         db.query(Project)
         .filter(
-            Project.id == project_id
+            Project.id
+            == project_id
         )
         .first()
     )
+
 
     if not project:
 
@@ -471,26 +736,31 @@ def generate_more_logos(
             detail="Project not found",
         )
 
+
     try:
 
         concepts = (
-            generate_logo_concepts(
+            create_logo_concepts(
                 project=project,
                 db=db,
                 count=3,
             )
         )
 
+
         db.commit()
 
+
         for concept in concepts:
+
             db.refresh(
                 concept["asset"]
             )
 
+
         return {
             "message":
-            "3 new concepts generated",
+            "3 new logo concepts generated",
 
             "concepts": [
                 {
@@ -507,27 +777,28 @@ def generate_more_logos(
             ],
         }
 
+
     except Exception as error:
 
         db.rollback()
+
 
         print(
             "Logo generation error:",
             repr(error),
         )
 
+
         raise HTTPException(
             status_code=500,
             detail=(
-                "Logo generation failed"
+                "Logo generation failed."
             ),
         )
 
 
 # =========================================================
-# 7. SELECT LOGO
-#    + SAVE PALETTE
-#    + GENERATE VIDEO AUTOMATICALLY
+# 7. SELECT LOGO + COLORS + VIDEO
 # =========================================================
 
 @app.post(
@@ -543,10 +814,12 @@ def select_logo(
     project = (
         db.query(Project)
         .filter(
-            Project.id == project_id
+            Project.id
+            == project_id
         )
         .first()
     )
+
 
     if not project:
 
@@ -559,7 +832,8 @@ def select_logo(
     logo = (
         db.query(Asset)
         .filter(
-            Asset.id == asset_id,
+            Asset.id
+            == asset_id,
 
             Asset.project_id
             == project.id,
@@ -580,7 +854,9 @@ def select_logo(
 
 
     logo_path = (
-        get_local_path(logo)
+        get_local_path(
+            logo
+        )
     )
 
 
@@ -592,7 +868,7 @@ def select_logo(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Logo file was not found"
+                "Logo file not found."
             ),
         )
 
@@ -600,7 +876,7 @@ def select_logo(
     try:
 
         # -----------------------------------------
-        # DESELECT OLD LOGOS
+        # SELECT LOGO
         # -----------------------------------------
 
         (
@@ -623,19 +899,17 @@ def select_logo(
         )
 
 
-        # -----------------------------------------
-        # SELECT THIS LOGO
-        # -----------------------------------------
-
         logo.is_selected = True
 
 
         # -----------------------------------------
-        # CREATE PALETTE
+        # UPDATE FINAL COLORS
         # -----------------------------------------
 
-        palette = extract_palette(
-            logo_path
+        palette = (
+            extract_palette(
+                logo_path
+            )
         )
 
 
@@ -649,51 +923,55 @@ def select_logo(
         )
 
 
-        if brand_kit:
+        if not brand_kit:
 
-            brand_kit.primary_color = (
-                palette["primary_color"]
+            brand_kit = BrandKit(
+                project_id=
+                project.id,
+
+                primary_color=
+                palette[
+                    "primary_color"
+                ],
+
+                secondary_color=
+                palette[
+                    "secondary_color"
+                ],
+
+                accent_color=
+                palette[
+                    "accent_color"
+                ],
             )
 
-            brand_kit.secondary_color = (
-                palette["secondary_color"]
-            )
-
-            brand_kit.accent_color = (
-                palette["accent_color"]
+            db.add(
+                brand_kit
             )
 
         else:
 
-            brand_kit = BrandKit(
-                project_id=(
-                    project.id
-                ),
-
-                primary_color=(
-                    palette[
-                        "primary_color"
-                    ]
-                ),
-
-                secondary_color=(
-                    palette[
-                        "secondary_color"
-                    ]
-                ),
-
-                accent_color=(
-                    palette[
-                        "accent_color"
-                    ]
-                ),
+            brand_kit.primary_color = (
+                palette[
+                    "primary_color"
+                ]
             )
 
-            db.add(brand_kit)
+            brand_kit.secondary_color = (
+                palette[
+                    "secondary_color"
+                ]
+            )
+
+            brand_kit.accent_color = (
+                palette[
+                    "accent_color"
+                ]
+            )
 
 
         # -----------------------------------------
-        # GENERATE VIDEO AUTOMATICALLY
+        # CREATE VIDEO
         # -----------------------------------------
 
         video_path = (
@@ -713,7 +991,7 @@ def select_logo(
         )
 
 
-        video_asset = Asset(
+        video = Asset(
             project_id=(
                 project.id
             ),
@@ -724,30 +1002,32 @@ def select_logo(
 
             prompt=(
                 "Automatic promotional "
-                "video generated from "
-                "selected logo"
+                "video from selected logo"
             ),
 
             is_selected=False,
         )
 
 
-        db.add(video_asset)
+        db.add(video)
+
 
         db.commit()
 
 
         db.refresh(logo)
         db.refresh(brand_kit)
-        db.refresh(video_asset)
+        db.refresh(video)
 
 
         return {
             "message":
-            "Brand identity selected successfully",
+            "Brand identity finalized",
 
             "logo":
-            asset_to_dict(logo),
+            asset_to_dict(
+                logo
+            ),
 
             "brand_kit":
             brand_kit_to_dict(
@@ -756,7 +1036,7 @@ def select_logo(
 
             "video":
             asset_to_dict(
-                video_asset
+                video
             ),
         }
 
@@ -765,16 +1045,17 @@ def select_logo(
 
         db.rollback()
 
+
         print(
-            "Logo selection error:",
+            "Select logo error:",
             repr(error),
         )
+
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "Could not finalize "
-                "brand identity"
+                "Could not finalize brand."
             ),
         )
 
@@ -794,7 +1075,8 @@ def get_assets(
     project = (
         db.query(Project)
         .filter(
-            Project.id == project_id
+            Project.id
+            == project_id
         )
         .first()
     )
@@ -827,27 +1109,34 @@ def get_assets(
     for asset in assets:
 
         data = (
-            asset_to_dict(asset)
+            asset_to_dict(
+                asset
+            )
         )
 
 
-        # Return a preview palette with every logo.
-        if asset.asset_type == "logo":
+        if (
+            asset.asset_type
+            == "logo"
+        ):
 
-            path = (
-                get_local_path(asset)
+            file_path = (
+                get_local_path(
+                    asset
+                )
             )
 
+
             if (
-                path
-                and path.exists()
+                file_path
+                and file_path.exists()
             ):
 
                 try:
 
                     data["palette"] = (
                         extract_palette(
-                            path
+                            file_path
                         )
                     )
 
@@ -856,16 +1145,19 @@ def get_assets(
                     data["palette"] = None
 
 
-        result.append(data)
+        result.append(
+            data
+        )
 
 
     return {
-        "assets": result
+        "assets":
+        result
     }
 
 
 # =========================================================
-# 9. GET BRAND KIT
+# 9. GET BRAND KIT + AI STRATEGY
 # =========================================================
 
 @app.get(
@@ -879,7 +1171,8 @@ def get_brand_kit(
     project = (
         db.query(Project)
         .filter(
-            Project.id == project_id
+            Project.id
+            == project_id
         )
         .first()
     )

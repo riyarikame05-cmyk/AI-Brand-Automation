@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -106,7 +107,6 @@ class Asset(Base):
         nullable=True,
     )
 
-    # Identifies the logo currently selected by the user.
     is_selected = Column(
         Boolean,
         nullable=False,
@@ -148,19 +148,65 @@ class BrandKit(Base):
         nullable=False,
     )
 
+    # -----------------------------------------------------
+    # COLORS
+    # -----------------------------------------------------
+
     primary_color = Column(
         String,
         nullable=False,
+        default="#000000",
     )
 
     secondary_color = Column(
         String,
         nullable=False,
+        default="#FFFFFF",
     )
 
     accent_color = Column(
         String,
         nullable=False,
+        default="#6366F1",
+    )
+
+    # -----------------------------------------------------
+    # AI BRAND STRATEGY
+    # -----------------------------------------------------
+
+    slogan = Column(
+        Text,
+        nullable=True,
+    )
+
+    personality = Column(
+        Text,
+        nullable=True,
+    )
+
+    tone = Column(
+        Text,
+        nullable=True,
+    )
+
+    target_audience = Column(
+        Text,
+        nullable=True,
+    )
+
+    marketing_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    heading_font = Column(
+        String,
+        nullable=True,
+    )
+
+    body_font = Column(
+        String,
+        nullable=True,
     )
 
     created_at = Column(
