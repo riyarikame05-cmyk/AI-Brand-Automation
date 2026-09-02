@@ -1,88 +1,79 @@
-from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
 import math
 import random
+from io import BytesIO
+
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+)
+
+from .logo_designer import (
+    generate_logo_specification,
+)
 
 
 # =========================================================
-# COLOR PALETTES
+# SETTINGS
 # =========================================================
 
-PALETTES = {
-    "minimalist": [
-        ("#111827", "#4F46E5", "#FFFFFF"),
-        ("#0F172A", "#64748B", "#FFFFFF"),
-        ("#18181B", "#52525B", "#FAFAFA"),
-    ],
-
-    "modern": [
-        ("#4F46E5", "#06B6D4", "#FFFFFF"),
-        ("#7C3AED", "#EC4899", "#FFFFFF"),
-        ("#2563EB", "#14B8A6", "#FFFFFF"),
-    ],
-
-    "luxury": [
-        ("#111111", "#C9A227", "#FFFFFF"),
-        ("#1C1917", "#D4AF37", "#FAFAF9"),
-        ("#171717", "#B8860B", "#FFFFFF"),
-    ],
-
-    "playful": [
-        ("#7C3AED", "#F59E0B", "#FFFFFF"),
-        ("#EC4899", "#06B6D4", "#FFFFFF"),
-        ("#F97316", "#8B5CF6", "#FFFFFF"),
-    ],
-
-    "futuristic": [
-        ("#0F172A", "#06B6D4", "#FFFFFF"),
-        ("#111827", "#8B5CF6", "#FFFFFF"),
-        ("#172554", "#22D3EE", "#FFFFFF"),
-    ],
-
-    "corporate": [
-        ("#16324F", "#2563EB", "#FFFFFF"),
-        ("#0F3D69", "#38BDF8", "#FFFFFF"),
-        ("#1E3A5F", "#3B82F6", "#FFFFFF"),
-    ],
-
-    "professional": [
-        ("#16324F", "#4EA5D9", "#FFFFFF"),
-        ("#1E3A5F", "#64748B", "#FFFFFF"),
-        ("#172554", "#2563EB", "#FFFFFF"),
-    ],
-}
+WIDTH = 1200
+HEIGHT = 1200
+BACKGROUND = "#FFFFFF"
 
 
 # =========================================================
-# FONT
+# FONT LOADER
 # =========================================================
 
-def get_font(size, bold=False):
+def get_font(
+    size: int,
+    font_style: str = "modern",
+):
 
-    if bold:
-        font_paths = [
+    font_map = {
+
+        "bold": [
             "C:/Windows/Fonts/arialbd.ttf",
             "C:/Windows/Fonts/segoeuib.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ]
+        ],
 
-    else:
-        font_paths = [
-            "C:/Windows/Fonts/arial.ttf",
+        "modern": [
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+        ],
+
+        "elegant": [
+            "C:/Windows/Fonts/georgiab.ttf",
+            "C:/Windows/Fonts/timesbd.ttf",
+        ],
+
+        "minimal": [
             "C:/Windows/Fonts/segoeui.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ]
+            "C:/Windows/Fonts/arial.ttf",
+        ],
+    }
 
-    for path in font_paths:
+
+    paths = font_map.get(
+        font_style,
+        font_map["modern"],
+    )
+
+
+    for path in paths:
 
         try:
+
             return ImageFont.truetype(
                 path,
-                size
+                size,
             )
 
         except OSError:
+
             continue
+
 
     return ImageFont.load_default()
 
@@ -91,648 +82,1130 @@ def get_font(size, bold=False):
 # HELPERS
 # =========================================================
 
-def center_text(
-    draw,
-    text,
-    y,
-    font,
-    color,
-    image_width,
-):
-
-    bbox = draw.textbbox(
-        (0, 0),
-        text,
-        font=font
-    )
-
-    text_width = (
-        bbox[2] - bbox[0]
-    )
-
-    x = (
-        image_width - text_width
-    ) / 2
-
-    draw.text(
-        (x, y),
-        text,
-        font=font,
-        fill=color
-    )
-
-
 def polygon_points(
     cx,
     cy,
     radius,
     sides,
-    rotation=-90,
+    rotation=0,
 ):
 
     points = []
+
 
     for index in range(sides):
 
         angle = math.radians(
             rotation
-            + index * (360 / sides)
+            + index
+            * (360 / sides)
+            - 90
         )
+
+
+        x = (
+            cx
+            + radius
+            * math.cos(angle)
+        )
+
+
+        y = (
+            cy
+            + radius
+            * math.sin(angle)
+        )
+
 
         points.append(
             (
-                cx
-                + radius
-                * math.cos(angle),
-
-                cy
-                + radius
-                * math.sin(angle),
+                x,
+                y,
             )
         )
+
 
     return points
 
 
-# =========================================================
-# TECHNOLOGY
-# =========================================================
-
-def draw_technology(
+def draw_center_text(
     draw,
-    cx,
-    cy,
-    primary,
-    accent,
-    variant,
+    text,
+    center_x,
+    y,
+    font,
+    color,
 ):
 
-    if variant == 0:
+    box = draw.textbbox(
+        (
+            0,
+            0,
+        ),
+        text,
+        font=font,
+    )
 
-        outer = polygon_points(
-            cx,
-            cy,
-            135,
-            6
+
+    width = (
+        box[2]
+        - box[0]
+    )
+
+
+    draw.text(
+        (
+            center_x
+            - width / 2,
+            y,
+        ),
+        text,
+        font=font,
+        fill=color,
+    )
+
+
+def initials_from_name(
+    business_name: str,
+):
+
+    words = [
+        word
+        for word
+        in business_name.strip().split()
+        if word
+    ]
+
+
+    if not words:
+
+        return "B"
+
+
+    if len(words) == 1:
+
+        return (
+            words[0][:2]
+            .upper()
         )
 
-        draw.polygon(
-            outer,
-            fill=primary
+
+    return (
+        words[0][0]
+        + words[-1][0]
+    ).upper()
+
+
+# =========================================================
+# BASIC SHAPE
+# =========================================================
+
+def draw_shape(
+    draw,
+    shape,
+    cx,
+    cy,
+    radius,
+    color,
+    rotation,
+    stroke_width,
+    outline_only=False,
+):
+
+    if shape == "circle":
+
+        box = (
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
         )
 
-        inner = polygon_points(
-            cx,
-            cy,
-            75,
-            6
-        )
 
-        draw.polygon(
-            inner,
-            fill="white"
-        )
-
-        draw.ellipse(
-            (
-                cx - 30,
-                cy - 30,
-                cx + 30,
-                cy + 30,
-            ),
-            fill=accent
-        )
-
-    elif variant == 1:
-
-        nodes = [
-            (cx, cy - 120),
-            (cx - 115, cy + 70),
-            (cx + 115, cy + 70),
-        ]
-
-        draw.line(
-            nodes + [nodes[0]],
-            fill=primary,
-            width=28,
-            joint="curve"
-        )
-
-        for x, y in nodes:
+        if outline_only:
 
             draw.ellipse(
-                (
-                    x - 32,
-                    y - 32,
-                    x + 32,
-                    y + 32,
-                ),
-                fill=accent
+                box,
+                outline=color,
+                width=stroke_width,
             )
 
-    else:
+        else:
 
-        for angle in [
-            0,
-            90,
-            180,
-            270,
-        ]:
-
-            rad = math.radians(
-                angle
+            draw.ellipse(
+                box,
+                fill=color,
             )
 
-            x = (
-                cx
-                + 100
-                * math.cos(rad)
-            )
 
-            y = (
-                cy
-                + 100
-                * math.sin(rad)
-            )
+    elif shape == "square":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            4,
+            rotation + 45,
+        )
+
+
+        if outline_only:
 
             draw.line(
-                (
-                    cx,
-                    cy,
-                    x,
-                    y,
-                ),
-                fill=primary,
-                width=30
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
             )
 
-            draw.ellipse(
-                (
-                    x - 28,
-                    y - 28,
-                    x + 28,
-                    y + 28,
-                ),
-                fill=accent
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
             )
 
-        draw.ellipse(
-            (
-                cx - 45,
-                cy - 45,
-                cx + 45,
-                cy + 45,
-            ),
-            fill=primary
+
+    elif shape == "diamond":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            4,
+            rotation,
         )
 
 
-# =========================================================
-# CLOTHING / TEXTILE
-# =========================================================
+        if outline_only:
 
-def draw_textile(
-    draw,
-    cx,
-    cy,
-    primary,
-    accent,
-    variant,
-):
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
 
-    if variant == 0:
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "triangle":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            3,
+            rotation,
+        )
+
+
+        if outline_only:
+
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
+
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "hexagon":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            6,
+            rotation,
+        )
+
+
+        if outline_only:
+
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
+
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "rings":
 
         for offset in [
-            -80,
-            -25,
-            30,
-            85,
+            0,
+            45,
+            90,
         ]:
 
-            draw.line(
-                (
-                    cx - 125,
-                    cy + offset,
-                    cx,
-                    cy + offset - 65,
-                    cx + 125,
-                    cy + offset,
-                ),
-                fill=primary,
-                width=25,
-                joint="curve"
+            r = max(
+                25,
+                radius - offset,
             )
 
-    elif variant == 1:
+
+            draw.ellipse(
+                (
+                    cx - r,
+                    cy - r,
+                    cx + r,
+                    cy + r,
+                ),
+                outline=color,
+                width=max(
+                    8,
+                    stroke_width,
+                ),
+            )
+
+
+    elif shape == "arcs":
 
         draw.arc(
             (
-                cx - 140,
-                cy - 120,
-                cx + 140,
-                cy + 140,
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
             ),
-            190,
-            350,
-            fill=primary,
-            width=28
+            start=20 + rotation,
+            end=170 + rotation,
+            fill=color,
+            width=stroke_width,
         )
 
-        draw.line(
+
+        inner = int(
+            radius * 0.65
+        )
+
+
+        draw.arc(
             (
-                cx - 115,
-                cy + 55,
-                cx,
-                cy - 15,
-                cx + 115,
-                cy + 55,
+                cx - inner,
+                cy - inner,
+                cx + inner,
+                cy + inner,
             ),
-            fill=accent,
-            width=30
+            start=200 + rotation,
+            end=350 + rotation,
+            fill=color,
+            width=stroke_width,
         )
 
-    else:
 
-        for offset in [
-            -60,
-            0,
-            60,
-        ]:
+    elif shape == "lines":
 
-            draw.rounded_rectangle(
+        count = 5
+
+
+        for index in range(count):
+
+            offset = (
+                index - 2
+            ) * 45
+
+
+            draw.line(
                 (
-                    cx - 130 + offset,
-                    cy - 130,
-                    cx - 70 + offset,
-                    cy + 130,
+                    cx - radius,
+                    cy + offset,
+                    cx + radius,
+                    cy - offset,
                 ),
-                radius=25,
-                fill=(
-                    primary
-                    if offset != 0
-                    else accent
+                fill=color,
+                width=stroke_width,
+            )
+
+
+    elif shape == "waves":
+
+        points = []
+
+
+        for x in range(
+            int(cx - radius),
+            int(cx + radius) + 1,
+            10,
+        ):
+
+            relative = (
+                x - cx
+            )
+
+
+            y = (
+                cy
+                + math.sin(
+                    relative / 45
+                )
+                * radius
+                * 0.35
+            )
+
+
+            points.append(
+                (
+                    x,
+                    y,
                 )
             )
 
 
-# =========================================================
-# COFFEE
-# =========================================================
-
-def draw_coffee(
-    draw,
-    cx,
-    cy,
-    primary,
-    accent,
-    variant,
-):
-
-    if variant == 0:
-
-        draw.ellipse(
-            (
-                cx - 95,
-                cy - 135,
-                cx + 95,
-                cy + 135,
-            ),
-            fill=primary
+        draw.line(
+            points,
+            fill=color,
+            width=stroke_width,
         )
 
-        draw.arc(
+
+        second = [
             (
-                cx - 45,
-                cy - 120,
-                cx + 45,
-                cy + 120,
-            ),
-            80,
-            280,
-            fill=accent,
-            width=18
-        )
-
-    elif variant == 1:
-
-        draw.rounded_rectangle(
-            (
-                cx - 120,
-                cy - 70,
-                cx + 75,
-                cy + 90,
-            ),
-            radius=35,
-            fill=primary
-        )
-
-        draw.ellipse(
-            (
-                cx + 40,
-                cy - 30,
-                cx + 145,
-                cy + 65,
-            ),
-            outline=accent,
-            width=25
-        )
-
-    else:
-
-        for offset in [
-            -55,
-            0,
-            55,
-        ]:
-
-            draw.arc(
-                (
-                    cx
-                    + offset
-                    - 30,
-                    cy - 140,
-                    cx
-                    + offset
-                    + 30,
-                    cy - 15,
-                ),
-                180,
-                360,
-                fill=accent,
-                width=16
+                x,
+                y + 65,
             )
-
-        draw.ellipse(
-            (
-                cx - 110,
-                cy,
-                cx + 110,
-                cy + 100,
-            ),
-            fill=primary
-        )
-
-
-# =========================================================
-# FINANCE
-# =========================================================
-
-def draw_finance(
-    draw,
-    cx,
-    cy,
-    primary,
-    accent,
-    variant,
-):
-
-    if variant == 0:
-
-        heights = [
-            80,
-            135,
-            200,
+            for x, y
+            in points
         ]
 
-        for i, height in enumerate(
-            heights
-        ):
-
-            x = (
-                cx - 130
-                + i * 90
-            )
-
-            draw.rounded_rectangle(
-                (
-                    x,
-                    cy + 110 - height,
-                    x + 55,
-                    cy + 110,
-                ),
-                radius=10,
-                fill=primary
-            )
-
-    elif variant == 1:
 
         draw.line(
-            (
-                cx - 130,
-                cy + 80,
-                cx - 30,
-                cy + 15,
-                cx + 50,
-                cy - 55,
-                cx + 130,
-                cy - 125,
+            second,
+            fill=color,
+            width=max(
+                8,
+                stroke_width - 5,
             ),
-            fill=primary,
-            width=35,
-            joint="curve"
         )
 
-        draw.polygon(
-            [
-                (
-                    cx + 130,
-                    cy - 125
-                ),
-                (
-                    cx + 65,
-                    cy - 110
-                ),
-                (
-                    cx + 115,
-                    cy - 55
-                ),
-            ],
-            fill=accent
+
+    elif shape == "interlocking":
+
+        r = (
+            radius * 0.7
         )
+
+
+        draw.ellipse(
+            (
+                cx - r - 55,
+                cy - r,
+                cx + r - 55,
+                cy + r,
+            ),
+            outline=color,
+            width=stroke_width,
+        )
+
+
+        draw.ellipse(
+            (
+                cx - r + 55,
+                cy - r,
+                cx + r + 55,
+                cy + r,
+            ),
+            outline=color,
+            width=stroke_width,
+        )
+
 
     else:
 
         draw.ellipse(
             (
-                cx - 135,
-                cy - 135,
-                cx + 135,
-                cy + 135,
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
             ),
-            outline=primary,
-            width=28
-        )
-
-        draw.line(
-            (
-                cx,
-                cy + 75,
-                cx,
-                cy - 75,
-            ),
-            fill=accent,
-            width=30
-        )
-
-        draw.line(
-            (
-                cx - 55,
-                cy - 25,
-                cx,
-                cy - 75,
-                cx + 55,
-                cy - 25,
-            ),
-            fill=accent,
-            width=30
+            fill=color,
         )
 
 
 # =========================================================
-# GENERIC PROFESSIONAL SYMBOL
+# MONOGRAM
 # =========================================================
 
-def draw_generic(
+def render_monogram(
     draw,
+    specification,
+    business_name,
     cx,
     cy,
-    primary,
-    accent,
-    variant,
 ):
 
-    sides = [
-        4,
-        5,
-        6,
-    ][variant]
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
 
-    outer = polygon_points(
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    initials = (
+        initials_from_name(
+            business_name
+        )
+    )
+
+
+    shape = (
+        specification[
+            "shape"
+        ]
+    )
+
+
+    draw_shape(
+        draw,
+        shape,
         cx,
         cy,
-        140,
-        sides
+        190,
+        primary,
+        specification[
+            "rotation"
+        ],
+        specification[
+            "stroke_width"
+        ],
+        outline_only=True,
     )
 
-    draw.polygon(
-        outer,
-        fill=primary
+
+    font = get_font(
+        135,
+        specification[
+            "font_style"
+        ],
     )
 
-    inner = polygon_points(
+
+    draw_center_text(
+        draw,
+        initials,
+        cx,
+        cy - 85,
+        font,
+        accent,
+    )
+
+
+# =========================================================
+# LETTERMARK
+# =========================================================
+
+def render_lettermark(
+    draw,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    initials = (
+        initials_from_name(
+            business_name
+        )
+    )
+
+
+    font = get_font(
+        210,
+        "bold",
+    )
+
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    # First copy
+    draw_center_text(
+        draw,
+        initials,
+        cx - 20,
+        cy - 145,
+        font,
+        primary,
+    )
+
+
+    # Offset accent creates
+    # a custom overlapping lettermark.
+    draw_center_text(
+        draw,
+        initials,
+        cx + 20,
+        cy - 115,
+        font,
+        accent,
+    )
+
+
+# =========================================================
+# ABSTRACT
+# =========================================================
+
+def render_abstract(
+    draw,
+    specification,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    secondary = (
+        specification[
+            "secondary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    layers = (
+        specification[
+            "layers"
+        ]
+    )
+
+
+    for index in range(
+        layers
+    ):
+
+        radius = (
+            190
+            - index * 35
+        )
+
+
+        color = [
+            primary,
+            secondary,
+            accent,
+        ][
+            index % 3
+        ]
+
+
+        rotation = (
+            specification[
+                "rotation"
+            ]
+            + index * 28
+        )
+
+
+        # Offset layers to make
+        # abstract compositions.
+        offset_x = (
+            (index - layers / 2)
+            * 20
+        )
+
+
+        offset_y = (
+            math.sin(index)
+            * 25
+        )
+
+
+        draw_shape(
+            draw,
+            specification[
+                "shape"
+            ],
+            cx + offset_x,
+            cy + offset_y,
+            radius,
+            color,
+            rotation,
+            specification[
+                "stroke_width"
+            ],
+            outline_only=(
+                index % 2 == 1
+            ),
+        )
+
+
+# =========================================================
+# GEOMETRIC
+# =========================================================
+
+def render_geometric(
+    draw,
+    specification,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    secondary = (
+        specification[
+            "secondary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    draw_shape(
+        draw,
+        specification[
+            "shape"
+        ],
         cx,
         cy,
-        75,
-        sides
+        205,
+        primary,
+        specification[
+            "rotation"
+        ],
+        specification[
+            "stroke_width"
+        ],
+        outline_only=True,
     )
 
-    draw.polygon(
-        inner,
-        fill="white"
+
+    inner_shape = (
+        random.choice(
+            [
+                "circle",
+                "diamond",
+                "triangle",
+                "hexagon",
+            ]
+        )
     )
+
+
+    draw_shape(
+        draw,
+        inner_shape,
+        cx,
+        cy,
+        115,
+        secondary,
+        specification[
+            "rotation"
+        ] + 30,
+        specification[
+            "stroke_width"
+        ],
+    )
+
 
     draw.ellipse(
         (
-            cx - 32,
-            cy - 32,
-            cx + 32,
-            cy + 32,
+            cx - 35,
+            cy - 35,
+            cx + 35,
+            cy + 35,
         ),
-        fill=accent
+        fill=accent,
     )
 
 
 # =========================================================
-# CHOOSE INDUSTRY SYMBOL
+# EMBLEM
 # =========================================================
 
-def draw_industry_symbol(
+def render_emblem(
     draw,
-    industry,
+    specification,
+    business_name,
     cx,
     cy,
-    primary,
-    accent,
-    variant,
 ):
 
-    industry = (
-        industry
-        or ""
-    ).strip().lower()
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
 
-    if industry in [
-        "technology",
-        "ai",
-        "gaming",
-    ]:
 
-        draw_technology(
-            draw,
-            cx,
-            cy,
-            primary,
-            accent,
-            variant
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 215,
+            cy - 215,
+            cx + 215,
+            cy + 215,
+        ),
+        fill=primary,
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 170,
+            cy - 170,
+            cx + 170,
+            cy + 170,
+        ),
+        outline=accent,
+        width=(
+            specification[
+                "stroke_width"
+            ]
+        ),
+    )
+
+
+    initials = (
+        initials_from_name(
+            business_name
         )
+    )
 
-    elif industry in [
-        "clothing",
-        "fashion",
-        "textile",
-    ]:
 
-        draw_textile(
-            draw,
-            cx,
-            cy,
-            primary,
-            accent,
-            variant
+    font = get_font(
+        125,
+        "bold",
+    )
+
+
+    draw_center_text(
+        draw,
+        initials,
+        cx,
+        cy - 80,
+        font,
+        "#FFFFFF",
+    )
+
+
+# =========================================================
+# NEGATIVE SPACE
+# =========================================================
+
+def render_negative_space(
+    draw,
+    specification,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    draw_shape(
+        draw,
+        specification[
+            "shape"
+        ],
+        cx,
+        cy,
+        205,
+        primary,
+        specification[
+            "rotation"
+        ],
+        specification[
+            "stroke_width"
+        ],
+    )
+
+
+    # White geometric cutout
+    draw_shape(
+        draw,
+        "triangle",
+        cx + 25,
+        cy - 10,
+        105,
+        BACKGROUND,
+        specification[
+            "rotation"
+        ] + 20,
+        12,
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 35,
+            cy - 35,
+            cx + 35,
+            cy + 35,
+        ),
+        fill=accent,
+    )
+
+
+# =========================================================
+# COMBINATION SYMBOL
+# =========================================================
+
+def render_combination(
+    draw,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    render_abstract(
+        draw,
+        specification,
+        cx,
+        cy,
+    )
+
+
+    initials = (
+        initials_from_name(
+            business_name
         )
+    )
 
-    elif industry in [
-        "coffee",
-        "restaurant",
-    ]:
 
-        draw_coffee(
-            draw,
-            cx,
-            cy,
-            primary,
-            accent,
-            variant
-        )
+    font = get_font(
+        90,
+        "bold",
+    )
 
-    elif industry in [
-        "finance",
-        "ecommerce",
-    ]:
 
-        draw_finance(
-            draw,
-            cx,
-            cy,
-            primary,
-            accent,
-            variant
-        )
+    draw_center_text(
+        draw,
+        initials,
+        cx,
+        cy - 55,
+        font,
+        BACKGROUND,
+    )
+
+
+# =========================================================
+# WORDMARK
+# =========================================================
+
+def render_wordmark(
+    draw,
+    specification,
+    business_name,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+
+    font_size = 110
+
+
+    if len(name) > 12:
+
+        font_size = 80
+
+
+    if len(name) > 20:
+
+        font_size = 58
+
+
+    font = get_font(
+        font_size,
+        specification[
+            "font_style"
+        ],
+    )
+
+
+    draw_center_text(
+        draw,
+        name,
+        WIDTH // 2,
+        430,
+        font,
+        primary,
+    )
+
+
+    # Decorative brand stroke
+    line_width = min(
+        400,
+        max(
+            150,
+            len(name) * 25,
+        ),
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            WIDTH // 2
+            - line_width // 2,
+
+            590,
+
+            WIDTH // 2
+            + line_width // 2,
+
+            604,
+        ),
+        radius=7,
+        fill=accent,
+    )
+
+
+# =========================================================
+# COMPANY NAME
+# =========================================================
+
+def render_company_name(
+    draw,
+    business_name,
+    specification,
+    y=740,
+):
+
+    name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+
+    if len(name) <= 10:
+
+        font_size = 88
+
+
+    elif len(name) <= 16:
+
+        font_size = 70
+
+
+    elif len(name) <= 22:
+
+        font_size = 57
+
 
     else:
 
-        draw_generic(
-            draw,
-            cx,
-            cy,
-            primary,
-            accent,
-            variant
-        )
+        font_size = 45
+
+
+    font = get_font(
+        font_size,
+        specification[
+            "font_style"
+        ],
+    )
+
+
+    draw_center_text(
+        draw,
+        name,
+        WIDTH // 2,
+        y,
+        font,
+        specification[
+            "primary_color"
+        ],
+    )
 
 
 # =========================================================
-# MAIN GENERATOR
+# MAIN LOGO GENERATOR
 # =========================================================
 
 def generate_logo_image(
@@ -742,163 +1215,323 @@ def generate_logo_image(
     description: str = "",
 ) -> bytes:
 
-    width = 1200
-    height = 1200
+    # =====================================================
+    # GET UNIQUE AI DESIGN SPECIFICATION
+    # =====================================================
 
-    style_key = (
-        style
-        or "modern"
-    ).strip().lower()
-
-    available_palettes = (
-        PALETTES.get(
-            style_key,
-            PALETTES["modern"]
+    specification = (
+        generate_logo_specification(
+            business_name=business_name,
+            industry=industry,
+            style=style,
+            description=description,
         )
     )
 
-    # NEW RANDOM CHOICES EVERY GENERATION
 
-    palette = random.choice(
-        available_palettes
+    print("")
+    print(
+        "======================================"
+    )
+    print(
+        "AI LOGO SPECIFICATION"
+    )
+    print(
+        "======================================"
+    )
+    print(
+        specification
     )
 
-    primary = palette[0]
-    accent = palette[1]
-    background = palette[2]
 
-    variant = random.randint(
-        0,
-        2
-    )
+    # =====================================================
+    # CANVAS
+    # =====================================================
 
     image = Image.new(
         "RGB",
         (
-            width,
-            height
+            WIDTH,
+            HEIGHT,
         ),
-        background
+        BACKGROUND,
     )
+
 
     draw = ImageDraw.Draw(
         image
     )
 
-    # -----------------------------------------
-    # LOGO SYMBOL
-    # -----------------------------------------
 
-    draw_industry_symbol(
-        draw=draw,
-        industry=industry,
-        cx=width // 2,
-        cy=380,
-        primary=primary,
-        accent=accent,
-        variant=variant
+    logo_type = (
+        specification[
+            "logo_type"
+        ]
     )
 
 
-    # -----------------------------------------
-    # COMPANY NAME
-    # -----------------------------------------
-
-    name = (
-        business_name
-        or "BRAND"
-    ).strip().upper()
+    layout = (
+        specification[
+            "layout"
+        ]
+    )
 
 
-    if len(name) <= 10:
+    # =====================================================
+    # WORDMARK
+    # =====================================================
 
-        font_size = 100
+    if logo_type == "wordmark":
 
-    elif len(name) <= 16:
+        render_wordmark(
+            draw,
+            specification,
+            business_name,
+        )
 
-        font_size = 80
 
-    elif len(name) <= 22:
+    # =====================================================
+    # SYMBOL LEFT
+    # =====================================================
 
-        font_size = 65
+    elif layout == "symbol-left":
+
+        cx = 320
+        cy = 520
+
+
+        render_logo_symbol(
+            draw,
+            logo_type,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+        name = (
+            business_name
+            .strip()
+            .upper()
+        )
+
+
+        font_size = (
+            65
+            if len(name) <= 14
+            else 48
+        )
+
+
+        font = get_font(
+            font_size,
+            specification[
+                "font_style"
+            ],
+        )
+
+
+        draw.text(
+            (
+                570,
+                470,
+            ),
+            name,
+            font=font,
+            fill=(
+                specification[
+                    "primary_color"
+                ]
+            ),
+        )
+
+
+    # =====================================================
+    # STANDARD / EMBLEM
+    # =====================================================
 
     else:
 
-        font_size = 50
+        cx = (
+            WIDTH // 2
+        )
+
+        cy = 415
 
 
-    name_font = get_font(
-        font_size,
-        bold=True
-    )
+        render_logo_symbol(
+            draw,
+            logo_type,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
 
 
-    center_text(
-        draw=draw,
-        text=name,
-        y=675,
-        font=name_font,
-        color=primary,
-        image_width=width
-    )
+        if logo_type not in [
+            "wordmark",
+        ]:
+
+            render_company_name(
+                draw,
+                business_name,
+                specification,
+                y=720,
+            )
 
 
-    # -----------------------------------------
-    # ACCENT DIVIDER
-    # -----------------------------------------
-
-    draw.rounded_rectangle(
-        (
-            width // 2 - 65,
-            815,
-            width // 2 + 65,
-            823,
-        ),
-        radius=4,
-        fill=accent
-    )
-
-
-    # -----------------------------------------
-    # INDUSTRY
-    # -----------------------------------------
+    # =====================================================
+    # INDUSTRY LABEL
+    # =====================================================
 
     industry_text = (
-        (industry or "")
-        .replace("_", " ")
-        .replace("-", " ")
+        industry
+        .replace(
+            "_",
+            " "
+        )
+        .replace(
+            "-",
+            " "
+        )
         .upper()
     )
 
 
-    industry_font = get_font(
-        29,
-        bold=False
+    small_font = get_font(
+        27,
+        "minimal",
     )
 
 
-    center_text(
-        draw=draw,
-        text=industry_text,
-        y=855,
-        font=industry_font,
-        color=accent,
-        image_width=width
+    draw_center_text(
+        draw,
+        industry_text,
+        WIDTH // 2,
+        860,
+        small_font,
+        specification[
+            "secondary_color"
+        ],
     )
 
 
-    # -----------------------------------------
-    # EXPORT
-    # -----------------------------------------
+    # =====================================================
+    # EXPORT PNG
+    # =====================================================
 
     buffer = BytesIO()
+
 
     image.save(
         buffer,
         format="PNG",
-        optimize=True
+        optimize=True,
     )
 
-    buffer.seek(0)
+
+    buffer.seek(
+        0
+    )
+
 
     return buffer.getvalue()
+
+
+# =========================================================
+# SYMBOL ROUTER
+# =========================================================
+
+def render_logo_symbol(
+    draw,
+    logo_type,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    if logo_type == "monogram":
+
+        render_monogram(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "lettermark":
+
+        render_lettermark(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "abstract":
+
+        render_abstract(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "geometric":
+
+        render_geometric(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "emblem":
+
+        render_emblem(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "negative-space":
+
+        render_negative_space(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "combination":
+
+        render_combination(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    else:
+
+        render_abstract(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
