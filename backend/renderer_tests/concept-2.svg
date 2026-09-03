@@ -1,0 +1,63 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="1200"
+    height="1200"
+    viewBox="0 0 1200 1200"
+>
+    <rect
+        width="1200"
+        height="1200"
+        fill="#FFFFFF"
+    />
+
+    
+            <polygon
+                points="673.53,192.97 811.73,357.67 738.2,559.7 526.47,597.03 388.27,432.33 461.8,230.3"
+                fill="none"
+                stroke="#112233"
+                stroke-width="18"
+                stroke-linejoin="round"
+            />
+
+            <polygon
+                points="702.86,333.2 704.95,453.18 602.09,514.98 497.14,456.8 495.05,336.82 597.91,275.02"
+                fill="#445566"
+            />
+
+            <circle
+                cx="600"
+                cy="395"
+                r="32"
+                fill="#778899"
+            />
+            
+
+    <text
+        x="600"
+        y="770"
+        text-anchor="middle"
+        font-family="Arial, sans-serif"
+        font-size="82"
+        font-weight="700"
+        fill="#112233"
+    >NEXORA</text>
+
+    <rect
+        x="530"
+        y="825"
+        width="140"
+        height="8"
+        rx="4"
+        fill="#445566"
+    />
+
+    <text
+        x="600"
+        y="895"
+        text-anchor="middle"
+        font-family="Arial, sans-serif"
+        font-size="28"
+        letter-spacing="4"
+        fill="#445566"
+    >TECHNOLOGY</text>
+</svg>
