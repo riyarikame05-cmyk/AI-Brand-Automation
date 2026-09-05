@@ -34,3 +34,5 @@ backend/renderer_tests/
 
 # Generated renderer test files
 backend/renderer_tests/
+
+.ci-test/
