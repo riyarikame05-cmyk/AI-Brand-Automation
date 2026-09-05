@@ -20,16 +20,22 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2 libcairo2-dev ffmpeg
+
+      - name: Install Python dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify Python imports
+      - name: Verify backend
         working-directory: backend
         run: |
           python -m compileall app
+          python -c "import fastapi, ollama, numpy, sklearn, moviepy, sqlalchemy, reportlab, cairosvg; print('BACKEND OK')"
 
   frontend:
     name: Next.js Frontend
