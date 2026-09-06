@@ -36,3 +36,7 @@ backend/renderer_tests/
 backend/renderer_tests/
 
 .ci-test/
+
+# FLUX test outputs
+backend/flux-final-test.png
+backend/flux-test.png
