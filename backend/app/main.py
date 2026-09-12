@@ -14,6 +14,7 @@ from .models import Asset, BrandKit, Project
 from .services.brand_intelligence import generate_brand_intelligence
 from .services.color_extractor import extract_dominant_colors
 from .services.image_generator import generate_logo_image
+from .services.image_provider import generate_image
 from .services.video_generator import generate_promotional_video
 
 
@@ -76,6 +77,11 @@ class BrandRequest(BaseModel):
     description: str
     industry: str
     style: str
+
+
+class CampaignImageRequest(BaseModel):
+    prompt: str = ""
+    provider: str = "auto"
 
 
 # =========================================================
@@ -263,12 +269,15 @@ def create_logo_concepts(
                 business_name=(
                     project.business_name
                 ),
+
                 industry=(
                     project.industry
                 ),
+
                 style=(
                     project.style
                 ),
+
                 description=(
                     project.description
                 ),
@@ -339,6 +348,301 @@ def create_logo_concepts(
 
 
     return concepts
+
+
+# =========================================================
+# CAMPAIGN IMAGE GENERATION
+# =========================================================
+
+@app.post(
+    "/projects/{project_id}/generate-image"
+)
+def generate_campaign_image(
+    project_id: str,
+    request: CampaignImageRequest,
+    db: Session = Depends(get_db),
+):
+
+    file_path = None
+
+    # -----------------------------------------------------
+    # FIND PROJECT
+    # -----------------------------------------------------
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id == project_id
+        )
+        .first()
+    )
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    try:
+
+        # -------------------------------------------------
+        # BRAND KIT
+        # -------------------------------------------------
+
+        brand_kit = (
+            db.query(BrandKit)
+            .filter(
+                BrandKit.project_id
+                == project.id
+            )
+            .first()
+        )
+
+
+        primary_color = (
+            brand_kit.primary_color
+            if brand_kit
+            else "#111827"
+        )
+
+        secondary_color = (
+            brand_kit.secondary_color
+            if brand_kit
+            else "#4F46E5"
+        )
+
+        accent_color = (
+            brand_kit.accent_color
+            if brand_kit
+            else "#06B6D4"
+        )
+
+
+        # -------------------------------------------------
+        # PROMPT
+        # -------------------------------------------------
+
+        custom_prompt = (
+            request.prompt.strip()
+        )
+
+
+        if custom_prompt:
+
+            concept = custom_prompt
+
+        else:
+
+            concept = (
+                "premium marketing campaign "
+                f"visual for {project.business_name}, "
+                f"{project.description}"
+            )
+
+
+        # -------------------------------------------------
+        # IMAGE SPECIFICATION
+        # -------------------------------------------------
+
+        specification = {
+            "concept":
+            concept,
+
+            "logo_type":
+            "abstract",
+
+            "shape":
+            "dynamic",
+
+            "primary_color":
+            primary_color,
+
+            "secondary_color":
+            secondary_color,
+
+            "accent_color":
+            accent_color,
+        }
+
+
+        # -------------------------------------------------
+        # GENERATE IMAGE
+        # -------------------------------------------------
+
+        image_bytes = (
+            generate_image(
+                provider=(
+                    request.provider
+                ),
+
+                purpose="campaign",
+
+                specification=(
+                    specification
+                ),
+
+                industry=(
+                    project.industry
+                ),
+
+                style=(
+                    project.style
+                ),
+            )
+        )
+
+
+        if not isinstance(
+            image_bytes,
+            (bytes, bytearray),
+        ):
+
+            raise RuntimeError(
+                "Image provider returned "
+                "invalid image data."
+            )
+
+
+        if len(image_bytes) < 1000:
+
+            raise RuntimeError(
+                "Generated image is invalid."
+            )
+
+
+        # -------------------------------------------------
+        # SAVE IMAGE
+        # -------------------------------------------------
+
+        filename = (
+            f"{project.id}-"
+            f"campaign-"
+            f"{uuid.uuid4()}.png"
+        )
+
+
+        file_path = (
+            GENERATED_DIR
+            / filename
+        )
+
+
+        file_path.write_bytes(
+            bytes(image_bytes)
+        )
+
+
+        # -------------------------------------------------
+        # PUBLIC URL
+        # -------------------------------------------------
+
+        image_url = (
+            "http://127.0.0.1:8000/"
+            f"generated/{filename}"
+        )
+
+
+        # -------------------------------------------------
+        # SAVE ASSET
+        # -------------------------------------------------
+
+        asset = Asset(
+            project_id=(
+                project.id
+            ),
+
+            asset_type=(
+                "campaign_image"
+            ),
+
+            url=(
+                image_url
+            ),
+
+            prompt=(
+                concept
+            ),
+
+            is_selected=False,
+        )
+
+
+        db.add(
+            asset
+        )
+
+        db.commit()
+
+        db.refresh(
+            asset
+        )
+
+
+        # -------------------------------------------------
+        # RESPONSE
+        # -------------------------------------------------
+
+        return {
+            "message":
+            (
+                "Campaign image "
+                "generated successfully."
+            ),
+
+            "provider":
+            request.provider,
+
+            "asset":
+            asset_to_dict(
+                asset
+            ),
+        }
+
+
+    except HTTPException:
+
+        db.rollback()
+
+        raise
+
+
+    except Exception as error:
+
+        db.rollback()
+
+
+        # ---------------------------------------------
+        # REMOVE ORPHAN FILE
+        # ---------------------------------------------
+
+        if (
+            file_path is not None
+            and file_path.exists()
+        ):
+
+            try:
+
+                file_path.unlink()
+
+            except OSError:
+
+                pass
+
+
+        print(
+            "Campaign image generation error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Campaign image "
+                "generation failed."
+            ),
+        )
 
 
 # =========================================================

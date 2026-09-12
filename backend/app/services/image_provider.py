@@ -1,6 +1,9 @@
 import os
 
-from .flux_provider import generate_flux_symbol
+from .flux_provider import (
+    generate_flux_campaign,
+    generate_flux_symbol,
+)
 from .replicate_provider import generate_replicate_image
 
 
@@ -34,11 +37,11 @@ def generate_local_image(**kwargs):
 
 def generate_flux_image(**kwargs):
     """
-    Generate an image using the existing Pollinations/FLUX
-    implementation.
+    Generate an image using Pollinations/FLUX.
 
-    Returns:
-        bytes: Raw generated image data.
+    purpose:
+        campaign -> marketing imagery
+        symbol   -> isolated logo symbol
     """
 
     specification = kwargs.get(
@@ -56,10 +59,32 @@ def generate_flux_image(**kwargs):
         "",
     )
 
-    return generate_flux_symbol(
-        specification=specification,
-        industry=industry,
-        style=style,
+    purpose = kwargs.get(
+        "purpose",
+        "campaign",
+    ).lower()
+
+
+    if purpose == "campaign":
+
+        return generate_flux_campaign(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
+
+
+    if purpose == "symbol":
+
+        return generate_flux_symbol(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
+
+
+    raise ValueError(
+        f"Unknown image purpose: {purpose}"
     )
 
 
@@ -74,9 +99,6 @@ def generate_replicate_provider_image(**kwargs):
     Requires:
         REPLICATE_API_TOKEN
         REPLICATE_IMAGE_MODEL
-
-    Returns:
-        bytes: Raw generated image data.
     """
 
     specification = kwargs.get(
@@ -107,10 +129,7 @@ def generate_replicate_provider_image(**kwargs):
 
 def generate_student_image(**kwargs):
     """
-    Reserved for a future image-generation service obtained
-    specifically through a student benefit.
-
-    GitHub Student itself is not an image-generation API.
+    Reserved for a future student-benefit image provider.
     """
 
     raise RuntimeError(
@@ -135,9 +154,6 @@ def generate_image(
         flux
         local
         student
-
-    `auto` tries providers in priority order and falls back
-    when a provider is unavailable.
     """
 
     selected = (
@@ -151,16 +167,18 @@ def generate_image(
     # -----------------------------------------------------
 
     if selected == "local":
+
         return generate_local_image(
             **kwargs
         )
 
 
     # -----------------------------------------------------
-    # EXISTING FLUX / POLLINATIONS
+    # FLUX / POLLINATIONS
     # -----------------------------------------------------
 
     if selected == "flux":
+
         return generate_flux_image(
             **kwargs
         )
@@ -171,6 +189,7 @@ def generate_image(
     # -----------------------------------------------------
 
     if selected == "replicate":
+
         return generate_replicate_provider_image(
             **kwargs
         )
@@ -181,6 +200,7 @@ def generate_image(
     # -----------------------------------------------------
 
     if selected == "student":
+
         return generate_student_image(
             **kwargs
         )
@@ -205,37 +225,49 @@ def generate_image(
 
         errors = []
 
+
         for name, generator in providers:
 
             try:
+
                 print(
                     f"Trying image provider: {name}"
                 )
+
 
                 image_bytes = generator(
                     **kwargs
                 )
 
+
                 if not isinstance(
                     image_bytes,
                     (bytes, bytearray),
                 ):
+
                     raise RuntimeError(
                         f"{name} provider returned "
                         "non-binary image data."
                     )
 
+
                 if len(image_bytes) < 1000:
+
                     raise RuntimeError(
                         f"{name} provider returned "
                         "invalid image data."
                     )
 
+
                 print(
                     f"Image provider succeeded: {name}"
                 )
 
-                return bytes(image_bytes)
+
+                return bytes(
+                    image_bytes
+                )
+
 
             except Exception as error:
 
@@ -249,15 +281,21 @@ def generate_image(
                 )
 
 
-        # Local provider is the final fallback.
+        # ---------------------------------------------
+        # FINAL LOCAL FALLBACK
+        # ---------------------------------------------
+
         try:
+
             print(
                 "Trying image provider: local"
             )
 
+
             return generate_local_image(
                 **kwargs
             )
+
 
         except Exception as error:
 
