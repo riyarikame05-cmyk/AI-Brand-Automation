@@ -1,0 +1,9660 @@
+
+============================================================
+FILE: backend\requirements.txt
+============================================================
+
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.5
+python-dotenv==1.2.2
+
+ollama==0.6.2
+httpx==0.28.1
+
+numpy==1.26.4
+scikit-learn
+scipy
+pillow==11.3.0
+opencv-python-headless
+
+moviepy==2.2.1
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
+
+SQLAlchemy
+psycopg2-binary
+
+CairoSVG
+reportlab
+requests
+
+============================================================
+FILE: backend\app\main.py
+============================================================
+
+import json
+import uuid
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from .database import get_db
+from .models import Asset, BrandKit, Project
+from .services.brand_intelligence import generate_brand_intelligence
+from .services.brand_package import create_brand_package
+from .services.color_extractor import extract_dominant_colors
+from .services.image_generator import generate_logo_image
+from .services.image_provider import generate_image
+from .services.video_generator import generate_promotional_video
+
+
+# =========================================================
+# APPLICATION
+# =========================================================
+
+app = FastAPI(
+    title="AI Brand Automation API",
+    description="Local AI-powered brand automation system",
+    version="5.0.0",
+)
+
+
+# =========================================================
+# GENERATED FILES
+# =========================================================
+
+GENERATED_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "generated"
+)
+
+GENERATED_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+app.mount(
+    "/generated",
+    StaticFiles(
+        directory=str(GENERATED_DIR)
+    ),
+    name="generated",
+)
+
+
+# =========================================================
+# CORS
+# =========================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# =========================================================
+# REQUEST MODELS
+# =========================================================
+
+class BrandRequest(BaseModel):
+    business_name: str
+    description: str
+    industry: str
+    style: str
+
+
+class CampaignImageRequest(BaseModel):
+    prompt: str = ""
+    provider: str = "auto"
+
+
+# =========================================================
+# SERIALIZATION HELPERS
+# =========================================================
+
+def project_to_dict(
+    project: Project,
+):
+
+    return {
+        "id":
+            str(project.id),
+
+        "business_name":
+            project.business_name,
+
+        "description":
+            project.description,
+
+        "industry":
+            project.industry,
+
+        "style":
+            project.style,
+
+        "created_at":
+            project.created_at,
+    }
+
+
+def asset_to_dict(
+    asset: Asset,
+):
+
+    return {
+        "id":
+            str(asset.id),
+
+        "project_id":
+            str(asset.project_id),
+
+        "asset_type":
+            asset.asset_type,
+
+        "url":
+            asset.url,
+
+        "prompt":
+            asset.prompt,
+
+        "is_selected":
+            bool(asset.is_selected),
+
+        "created_at":
+            asset.created_at,
+    }
+
+
+def brand_kit_to_dict(
+    brand_kit: BrandKit,
+):
+
+    try:
+
+        personality = (
+            json.loads(
+                brand_kit.personality
+            )
+            if brand_kit.personality
+            else []
+        )
+
+        if not isinstance(
+            personality,
+            list,
+        ):
+            personality = []
+
+    except Exception:
+
+        personality = []
+
+
+    return {
+        "id":
+            str(brand_kit.id),
+
+        "project_id":
+            str(brand_kit.project_id),
+
+        "primary_color":
+            brand_kit.primary_color,
+
+        "secondary_color":
+            brand_kit.secondary_color,
+
+        "accent_color":
+            brand_kit.accent_color,
+
+        "slogan":
+            brand_kit.slogan,
+
+        "personality":
+            personality,
+
+        "tone":
+            brand_kit.tone,
+
+        "target_audience":
+            brand_kit.target_audience,
+
+        "marketing_message":
+            brand_kit.marketing_message,
+
+        "heading_font":
+            brand_kit.heading_font,
+
+        "body_font":
+            brand_kit.body_font,
+
+        "created_at":
+            brand_kit.created_at,
+    }
+
+
+# =========================================================
+# FILE HELPERS
+# =========================================================
+
+def get_local_path(
+    asset: Asset,
+):
+
+    if not asset.url:
+
+        return None
+
+
+    if "/generated/" not in asset.url:
+
+        return None
+
+
+    filename = (
+        asset.url
+        .split("/generated/")[-1]
+    )
+
+
+    return (
+        GENERATED_DIR
+        / filename
+    )
+
+
+# =========================================================
+# COLOR HELPER
+# =========================================================
+
+def extract_palette(
+    file_path: Path,
+):
+
+    colors = (
+        extract_dominant_colors(
+            file_path,
+            number_of_colors=3,
+        )
+    )
+
+
+    if not colors:
+
+        raise ValueError(
+            "No colors were extracted."
+        )
+
+
+    # Make extraction resilient in case the
+    # image contains fewer than three colors.
+    colors = list(colors)
+
+
+    while len(colors) < 3:
+
+        colors.append(
+            colors[-1]
+        )
+
+
+    return {
+        "primary_color":
+            colors[0],
+
+        "secondary_color":
+            colors[1],
+
+        "accent_color":
+            colors[2],
+    }
+
+
+# =========================================================
+# LOGO GENERATION HELPER
+# =========================================================
+
+def create_logo_concepts(
+    project: Project,
+    db: Session,
+    count: int = 3,
+):
+
+    concepts = []
+
+    created_files = []
+
+
+    try:
+
+        for number in range(count):
+
+            print(
+                f"[LOGO] Generating "
+                f"{number + 1}/{count} "
+                f"for {project.business_name}"
+            )
+
+
+            # =============================================
+            # GENERATE IMAGE
+            # =============================================
+
+            image_bytes = (
+                generate_logo_image(
+                    business_name=(
+                        project.business_name
+                    ),
+
+                    industry=(
+                        project.industry
+                    ),
+
+                    style=(
+                        project.style
+                    ),
+
+                    description=(
+                        project.description
+                    ),
+                )
+            )
+
+
+            if not isinstance(
+                image_bytes,
+                (bytes, bytearray),
+            ):
+
+                raise RuntimeError(
+                    "Logo generator returned "
+                    "invalid image data."
+                )
+
+
+            if len(image_bytes) < 1000:
+
+                raise RuntimeError(
+                    "Generated logo image "
+                    "is too small or invalid."
+                )
+
+
+            # =============================================
+            # SAVE IMAGE
+            # =============================================
+
+            filename = (
+                f"{project.id}-"
+                f"{uuid.uuid4()}.png"
+            )
+
+
+            file_path = (
+                GENERATED_DIR
+                / filename
+            )
+
+
+            file_path.write_bytes(
+                bytes(image_bytes)
+            )
+
+
+            created_files.append(
+                file_path
+            )
+
+
+            image_url = (
+                "http://127.0.0.1:8000"
+                f"/generated/{filename}"
+            )
+
+
+            # =============================================
+            # EXTRACT COLORS
+            # =============================================
+
+            try:
+
+                palette = (
+                    extract_palette(
+                        file_path
+                    )
+                )
+
+
+            except Exception as error:
+
+                print(
+                    "[COLOR] Extraction failed:",
+                    repr(error),
+                )
+
+
+                # Palette extraction should not destroy
+                # an otherwise valid generated logo.
+                palette = {
+                    "primary_color":
+                        "#111827",
+
+                    "secondary_color":
+                        "#6366F1",
+
+                    "accent_color":
+                        "#8B5CF6",
+                }
+
+
+            # =============================================
+            # SAVE DATABASE ASSET
+            # =============================================
+
+            asset = Asset(
+                project_id=(
+                    project.id
+                ),
+
+                asset_type="logo",
+
+                url=(
+                    image_url
+                ),
+
+                prompt=(
+                    f"Logo concept "
+                    f"{number + 1} for "
+                    f"{project.business_name}"
+                ),
+
+                is_selected=False,
+            )
+
+
+            db.add(
+                asset
+            )
+
+            db.flush()
+
+
+            concepts.append({
+                "asset":
+                    asset,
+
+                "palette":
+                    palette,
+            })
+
+
+            print(
+                f"[LOGO] Completed "
+                f"{number + 1}/{count}"
+            )
+
+
+        return concepts
+
+
+    except Exception:
+
+        # SQLAlchemy rollback happens in the
+        # route calling this helper.
+        #
+        # Delete generated files so failed
+        # generations do not leave orphan files.
+
+        for file_path in created_files:
+
+            try:
+
+                if file_path.exists():
+
+                    file_path.unlink()
+
+            except OSError:
+
+                pass
+
+
+        raise
+
+
+# =========================================================
+# HOME
+# =========================================================
+
+@app.get("/")
+def home():
+
+    return {
+        "message":
+            "AI Brand Automation API is running",
+
+        "version":
+            "5.0.0",
+    }
+
+
+# =========================================================
+# HEALTH
+# =========================================================
+
+@app.get("/health")
+def health():
+
+    return {
+        "status":
+            "ok",
+
+        "version":
+            "5.0.0",
+    }
+
+
+# =========================================================
+# CREATE BRAND PROJECT
+#
+# IMPORTANT:
+# This does NOT generate logos.
+# Logo generation has its own endpoint.
+# =========================================================
+
+@app.post("/brand")
+def create_brand(
+    brand: BrandRequest,
+    db: Session = Depends(get_db),
+):
+
+    # =====================================================
+    # VALIDATION
+    # =====================================================
+
+    business_name = (
+        brand.business_name.strip()
+    )
+
+    description = (
+        brand.description.strip()
+    )
+
+    industry = (
+        brand.industry.strip()
+    )
+
+    style = (
+        brand.style.strip()
+    )
+
+
+    if not business_name:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Business name is required."
+            ),
+        )
+
+
+    if not description:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Business description is required."
+            ),
+        )
+
+
+    if not industry:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Industry is required."
+            ),
+        )
+
+
+    if not style:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Brand style is required."
+            ),
+        )
+
+
+    # =====================================================
+    # CREATE AND SAVE PROJECT FIRST
+    # =====================================================
+
+    try:
+
+        project = Project(
+            business_name=(
+                business_name
+            ),
+
+            description=(
+                description
+            ),
+
+            industry=(
+                industry
+            ),
+
+            style=(
+                style
+            ),
+        )
+
+
+        db.add(
+            project
+        )
+
+
+        db.commit()
+
+
+        db.refresh(
+            project
+        )
+
+
+        print(
+            "[BRAND] Project created:",
+            project.id,
+        )
+
+
+    except Exception as error:
+
+        db.rollback()
+
+
+        print(
+            "[BRAND] Project creation error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not create project."
+            ),
+        )
+
+
+    # =====================================================
+    # BRAND INTELLIGENCE
+    # =====================================================
+
+    try:
+
+        print(
+            "[AI] Generating brand intelligence..."
+        )
+
+
+        intelligence = (
+            generate_brand_intelligence(
+                business_name=(
+                    project.business_name
+                ),
+
+                industry=(
+                    project.industry
+                ),
+
+                description=(
+                    project.description
+                ),
+
+                style=(
+                    project.style
+                ),
+            )
+        )
+
+
+        if not isinstance(
+            intelligence,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "Brand intelligence returned "
+                "invalid data."
+            )
+
+
+        print(
+            "[AI] Brand intelligence complete."
+        )
+
+
+    except Exception as error:
+
+        print(
+            "[AI] Ollama error:",
+            repr(error),
+        )
+
+
+        # =============================================
+        # FALLBACK BRAND INTELLIGENCE
+        # =============================================
+
+        intelligence = {
+            "slogan":
+                "Built For What Comes Next",
+
+            "personality": [
+                "Professional",
+                "Modern",
+                "Reliable",
+            ],
+
+            "tone":
+                (
+                    "Clear, confident "
+                    "and professional"
+                ),
+
+            "target_audience":
+                (
+                    "Customers seeking "
+                    "quality and reliability"
+                ),
+
+            "marketing_message":
+                (
+                    "A modern brand built "
+                    "around quality, trust "
+                    "and customer value."
+                ),
+
+            "typography": {
+                "heading":
+                    "Montserrat",
+
+                "body":
+                    "Inter",
+            },
+        }
+
+
+    # =====================================================
+    # NORMALIZE AI RESPONSE
+    # =====================================================
+
+    typography = (
+        intelligence.get(
+            "typography",
+            {},
+        )
+    )
+
+
+    if not isinstance(
+        typography,
+        dict,
+    ):
+
+        typography = {}
+
+
+    personality = (
+        intelligence.get(
+            "personality",
+            [],
+        )
+    )
+
+
+    if not isinstance(
+        personality,
+        list,
+    ):
+
+        personality = []
+
+
+    # =====================================================
+    # CREATE BRAND KIT
+    # =====================================================
+
+    try:
+
+        brand_kit = BrandKit(
+            project_id=(
+                project.id
+            ),
+
+            # Temporary colors.
+            # These are replaced when the
+            # user selects a logo.
+
+            primary_color=(
+                "#111827"
+            ),
+
+            secondary_color=(
+                "#6366F1"
+            ),
+
+            accent_color=(
+                "#8B5CF6"
+            ),
+
+            slogan=(
+                intelligence.get(
+                    "slogan",
+                    ""
+                )
+                or ""
+            ),
+
+            personality=(
+                json.dumps(
+                    personality
+                )
+            ),
+
+            tone=(
+                intelligence.get(
+                    "tone",
+                    ""
+                )
+                or ""
+            ),
+
+            target_audience=(
+                intelligence.get(
+                    "target_audience",
+                    ""
+                )
+                or ""
+            ),
+
+            marketing_message=(
+                intelligence.get(
+                    "marketing_message",
+                    ""
+                )
+                or ""
+            ),
+
+            heading_font=(
+                typography.get(
+                    "heading",
+                    "Montserrat",
+                )
+                or "Montserrat"
+            ),
+
+            body_font=(
+                typography.get(
+                    "body",
+                    "Inter",
+                )
+                or "Inter"
+            ),
+        )
+
+
+        db.add(
+            brand_kit
+        )
+
+
+        db.commit()
+
+
+        db.refresh(
+            brand_kit
+        )
+
+
+        print(
+            "[BRAND] Brand kit saved."
+        )
+
+
+    except Exception as error:
+
+        db.rollback()
+
+
+        print(
+            "[BRAND] Brand kit error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Project was created, but "
+                "brand kit creation failed."
+            ),
+        )
+
+
+    # =====================================================
+    # RETURN WITHOUT WAITING FOR IMAGE GENERATION
+    # =====================================================
+
+    return {
+        "message":
+            "Brand project created",
+
+        "project":
+            project_to_dict(
+                project
+            ),
+
+        "brand_kit":
+            brand_kit_to_dict(
+                brand_kit
+            ),
+
+        "concepts":
+            [],
+    }
+
+
+# =========================================================
+# GET ALL PROJECTS
+# =========================================================
+
+@app.get("/projects")
+def get_projects(
+    db: Session = Depends(get_db),
+):
+
+    projects = (
+        db.query(Project)
+        .order_by(
+            Project.created_at.desc()
+        )
+        .all()
+    )
+
+
+    return {
+        "projects": [
+            project_to_dict(
+                project
+            )
+
+            for project
+            in projects
+        ]
+    }
+
+
+# =========================================================
+# GET PROJECT
+# =========================================================
+
+@app.get(
+    "/projects/{project_id}"
+)
+def get_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    return {
+        "project":
+            project_to_dict(
+                project
+            )
+    }
+
+
+# =========================================================
+# GENERATE 3 LOGO CONCEPTS
+# =========================================================
+
+@app.post(
+    "/projects/{project_id}/generate-logo"
+)
+def generate_more_logos(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    try:
+
+        print(
+            "[LOGO] Starting generation "
+            f"for project {project.id}"
+        )
+
+
+        concepts = (
+            create_logo_concepts(
+                project=(
+                    project
+                ),
+
+                db=(
+                    db
+                ),
+
+                count=3,
+            )
+        )
+
+
+        db.commit()
+
+
+        for concept in concepts:
+
+            db.refresh(
+                concept["asset"]
+            )
+
+
+        print(
+            "[LOGO] Batch completed."
+        )
+
+
+        return {
+            "message":
+                "3 logo concepts generated",
+
+            "concepts": [
+                {
+                    **asset_to_dict(
+                        concept["asset"]
+                    ),
+
+                    "palette":
+                        concept["palette"],
+                }
+
+                for concept
+                in concepts
+            ],
+        }
+
+
+    except Exception as error:
+
+        db.rollback()
+
+
+        print(
+            "[LOGO] Generation error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Logo generation failed."
+            ),
+        )
+
+
+# =========================================================
+# SELECT LOGO + UPDATE COLORS + GENERATE VIDEO
+# =========================================================
+
+@app.post(
+    "/projects/{project_id}"
+    "/logos/{asset_id}/select"
+)
+def select_logo(
+    project_id: str,
+    asset_id: str,
+    db: Session = Depends(get_db),
+):
+
+    # =====================================================
+    # PROJECT
+    # =====================================================
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    # =====================================================
+    # LOGO
+    # =====================================================
+
+    logo = (
+        db.query(Asset)
+        .filter(
+            Asset.id
+            == asset_id,
+
+            Asset.project_id
+            == project.id,
+
+            Asset.asset_type
+            == "logo",
+        )
+        .first()
+    )
+
+
+    if not logo:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Logo not found."
+            ),
+        )
+
+
+    logo_path = (
+        get_local_path(
+            logo
+        )
+    )
+
+
+    if (
+        logo_path is None
+        or not logo_path.exists()
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Logo file not found."
+            ),
+        )
+
+
+    try:
+
+        # =================================================
+        # SELECT LOGO
+        # =================================================
+
+        (
+            db.query(Asset)
+            .filter(
+                Asset.project_id
+                == project.id,
+
+                Asset.asset_type
+                == "logo",
+            )
+            .update(
+                {
+                    Asset.is_selected:
+                        False
+                },
+
+                synchronize_session=False,
+            )
+        )
+
+
+        logo.is_selected = True
+
+
+        # =================================================
+        # EXTRACT FINAL COLORS
+        # =================================================
+
+        palette = (
+            extract_palette(
+                logo_path
+            )
+        )
+
+
+        # =================================================
+        # LOAD BRAND KIT
+        # =================================================
+
+        brand_kit = (
+            db.query(BrandKit)
+            .filter(
+                BrandKit.project_id
+                == project.id
+            )
+            .first()
+        )
+
+
+        if not brand_kit:
+
+            brand_kit = BrandKit(
+                project_id=(
+                    project.id
+                ),
+
+                primary_color=(
+                    palette[
+                        "primary_color"
+                    ]
+                ),
+
+                secondary_color=(
+                    palette[
+                        "secondary_color"
+                    ]
+                ),
+
+                accent_color=(
+                    palette[
+                        "accent_color"
+                    ]
+                ),
+
+                slogan="",
+
+                personality=(
+                    json.dumps([])
+                ),
+
+                tone="",
+
+                target_audience="",
+
+                marketing_message="",
+
+                heading_font=(
+                    "Montserrat"
+                ),
+
+                body_font=(
+                    "Inter"
+                ),
+            )
+
+
+            db.add(
+                brand_kit
+            )
+
+
+        else:
+
+            brand_kit.primary_color = (
+                palette[
+                    "primary_color"
+                ]
+            )
+
+
+            brand_kit.secondary_color = (
+                palette[
+                    "secondary_color"
+                ]
+            )
+
+
+            brand_kit.accent_color = (
+                palette[
+                    "accent_color"
+                ]
+            )
+
+
+        # =================================================
+        # PERSONALITY
+        # =================================================
+
+        try:
+
+            personality = (
+                json.loads(
+                    brand_kit.personality
+                )
+                if brand_kit.personality
+                else []
+            )
+
+
+            if not isinstance(
+                personality,
+                list,
+            ):
+
+                personality = []
+
+
+        except Exception:
+
+            personality = []
+
+
+        # =================================================
+        # GENERATE VIDEO
+        # =================================================
+
+        print(
+            "[VIDEO] Generating video..."
+        )
+
+
+        video_path = (
+            generate_promotional_video(
+                logo_path=(
+                    logo_path
+                ),
+
+                output_directory=(
+                    GENERATED_DIR
+                ),
+
+                business_name=(
+                    project.business_name
+                ),
+
+                slogan=(
+                    brand_kit.slogan
+                    or ""
+                ),
+
+                personality=(
+                    personality
+                ),
+
+                marketing_message=(
+                    brand_kit.marketing_message
+                    or ""
+                ),
+
+                primary_color=(
+                    brand_kit.primary_color
+                ),
+
+                secondary_color=(
+                    brand_kit.secondary_color
+                ),
+
+                accent_color=(
+                    brand_kit.accent_color
+                ),
+            )
+        )
+
+
+        if not video_path:
+
+            raise RuntimeError(
+                "Video generator did not "
+                "return a file."
+            )
+
+
+        video_path = (
+            Path(video_path)
+        )
+
+
+        if not video_path.exists():
+
+            raise RuntimeError(
+                "Generated video file "
+                "does not exist."
+            )
+
+
+        # =================================================
+        # VIDEO ASSET
+        # =================================================
+
+        video_url = (
+            "http://127.0.0.1:8000"
+            f"/generated/{video_path.name}"
+        )
+
+
+        video = Asset(
+            project_id=(
+                project.id
+            ),
+
+            asset_type="video",
+
+            url=(
+                video_url
+            ),
+
+            prompt=(
+                "Automatic promotional "
+                "video from selected logo "
+                "and brand intelligence"
+            ),
+
+            is_selected=False,
+        )
+
+
+        db.add(
+            video
+        )
+
+
+        db.commit()
+
+
+        db.refresh(
+            logo
+        )
+
+        db.refresh(
+            brand_kit
+        )
+
+        db.refresh(
+            video
+        )
+
+
+        print(
+            "[VIDEO] Video completed."
+        )
+
+
+        return {
+            "message":
+                "Brand identity finalized",
+
+            "logo":
+                asset_to_dict(
+                    logo
+                ),
+
+            "brand_kit":
+                brand_kit_to_dict(
+                    brand_kit
+                ),
+
+            "video":
+                asset_to_dict(
+                    video
+                ),
+        }
+
+
+    except Exception as error:
+
+        db.rollback()
+
+
+        print(
+            "[SELECT] Error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not finalize brand."
+            ),
+        )
+
+
+# =========================================================
+# GET PROJECT ASSETS
+# =========================================================
+
+@app.get(
+    "/projects/{project_id}/assets"
+)
+def get_assets(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    assets = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id
+            == project.id
+        )
+        .order_by(
+            Asset.created_at.desc()
+        )
+        .all()
+    )
+
+
+    result = []
+
+
+    for asset in assets:
+
+        data = (
+            asset_to_dict(
+                asset
+            )
+        )
+
+
+        # =================================================
+        # ADD PALETTE TO LOGOS
+        # =================================================
+
+        if (
+            asset.asset_type
+            == "logo"
+        ):
+
+            file_path = (
+                get_local_path(
+                    asset
+                )
+            )
+
+
+            if (
+                file_path
+                and file_path.exists()
+            ):
+
+                try:
+
+                    data["palette"] = (
+                        extract_palette(
+                            file_path
+                        )
+                    )
+
+
+                except Exception as error:
+
+                    print(
+                        "[COLOR] Asset palette error:",
+                        repr(error),
+                    )
+
+
+                    data["palette"] = None
+
+
+            else:
+
+                data["palette"] = None
+
+
+        result.append(
+            data
+        )
+
+
+    return {
+        "assets":
+            result
+    }
+
+
+# =========================================================
+# GET BRAND KIT
+# =========================================================
+
+@app.get(
+    "/projects/{project_id}/brand-kit"
+)
+def get_brand_kit(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    brand_kit = (
+        db.query(BrandKit)
+        .filter(
+            BrandKit.project_id
+            == project.id
+        )
+        .first()
+    )
+
+
+    if not brand_kit:
+
+        return {
+            "brand_kit":
+                None
+        }
+
+
+    return {
+        "brand_kit":
+            brand_kit_to_dict(
+                brand_kit
+            )
+    }
+
+
+# =========================================================
+# GENERATE CAMPAIGN IMAGE
+# =========================================================
+
+@app.post(
+    "/projects/{project_id}/generate-image"
+)
+def generate_campaign_image(
+    project_id: str,
+    request: CampaignImageRequest,
+    db: Session = Depends(get_db),
+):
+
+    file_path = None
+
+
+    # =====================================================
+    # PROJECT
+    # =====================================================
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    try:
+
+        # =================================================
+        # BRAND KIT
+        # =================================================
+
+        brand_kit = (
+            db.query(BrandKit)
+            .filter(
+                BrandKit.project_id
+                == project.id
+            )
+            .first()
+        )
+
+
+        primary_color = (
+            brand_kit.primary_color
+            if brand_kit
+            else "#111827"
+        )
+
+
+        secondary_color = (
+            brand_kit.secondary_color
+            if brand_kit
+            else "#4F46E5"
+        )
+
+
+        accent_color = (
+            brand_kit.accent_color
+            if brand_kit
+            else "#06B6D4"
+        )
+
+
+        # =================================================
+        # PROMPT
+        # =================================================
+
+        custom_prompt = (
+            request.prompt.strip()
+        )
+
+
+        if custom_prompt:
+
+            concept = (
+                custom_prompt
+            )
+
+
+        else:
+
+            concept = (
+                "premium marketing campaign "
+                f"visual for "
+                f"{project.business_name}, "
+                f"{project.description}"
+            )
+
+
+        specification = {
+            "concept":
+                concept,
+
+            "logo_type":
+                "abstract",
+
+            "shape":
+                "dynamic",
+
+            "primary_color":
+                primary_color,
+
+            "secondary_color":
+                secondary_color,
+
+            "accent_color":
+                accent_color,
+        }
+
+
+        # =================================================
+        # GENERATE IMAGE
+        # =================================================
+
+        image_bytes = (
+            generate_image(
+                provider=(
+                    request.provider
+                ),
+
+                purpose=(
+                    "campaign"
+                ),
+
+                specification=(
+                    specification
+                ),
+
+                industry=(
+                    project.industry
+                ),
+
+                style=(
+                    project.style
+                ),
+            )
+        )
+
+
+        if not isinstance(
+            image_bytes,
+            (bytes, bytearray),
+        ):
+
+            raise RuntimeError(
+                "Image provider returned "
+                "invalid image data."
+            )
+
+
+        if len(image_bytes) < 1000:
+
+            raise RuntimeError(
+                "Generated image is invalid."
+            )
+
+
+        # =================================================
+        # SAVE FILE
+        # =================================================
+
+        filename = (
+            f"{project.id}-"
+            f"campaign-"
+            f"{uuid.uuid4()}.png"
+        )
+
+
+        file_path = (
+            GENERATED_DIR
+            / filename
+        )
+
+
+        file_path.write_bytes(
+            bytes(image_bytes)
+        )
+
+
+        image_url = (
+            "http://127.0.0.1:8000"
+            f"/generated/{filename}"
+        )
+
+
+        # =================================================
+        # DATABASE ASSET
+        # =================================================
+
+        asset = Asset(
+            project_id=(
+                project.id
+            ),
+
+            asset_type=(
+                "campaign_image"
+            ),
+
+            url=(
+                image_url
+            ),
+
+            prompt=(
+                concept
+            ),
+
+            is_selected=False,
+        )
+
+
+        db.add(
+            asset
+        )
+
+
+        db.commit()
+
+
+        db.refresh(
+            asset
+        )
+
+
+        return {
+            "message":
+                (
+                    "Campaign image "
+                    "generated successfully."
+                ),
+
+            "provider":
+                request.provider,
+
+            "asset":
+                asset_to_dict(
+                    asset
+                ),
+        }
+
+
+    except HTTPException:
+
+        db.rollback()
+
+        raise
+
+
+    except Exception as error:
+
+        db.rollback()
+
+
+        # =================================================
+        # DELETE ORPHAN FILE
+        # =================================================
+
+        if (
+            file_path is not None
+            and file_path.exists()
+        ):
+
+            try:
+
+                file_path.unlink()
+
+            except OSError:
+
+                pass
+
+
+        print(
+            "[CAMPAIGN] Generation error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Campaign image "
+                "generation failed."
+            ),
+        )
+
+
+# =========================================================
+# DOWNLOAD COMPLETE BRAND PACKAGE
+# =========================================================
+
+@app.get(
+    "/projects/{project_id}/download-package"
+)
+def download_brand_package(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+
+    # =====================================================
+    # PROJECT
+    # =====================================================
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    # =====================================================
+    # BRAND KIT
+    # =====================================================
+
+    brand_kit = (
+        db.query(BrandKit)
+        .filter(
+            BrandKit.project_id
+            == project.id
+        )
+        .first()
+    )
+
+
+    if not brand_kit:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Brand kit has not "
+                "been generated."
+            ),
+        )
+
+
+    # =====================================================
+    # SELECTED LOGO
+    # =====================================================
+
+    selected_logo = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id
+            == project.id,
+
+            Asset.asset_type
+            == "logo",
+
+            Asset.is_selected.is_(
+                True
+            ),
+        )
+        .first()
+    )
+
+
+    if not selected_logo:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Select a logo first."
+            ),
+        )
+
+
+    logo_path = (
+        get_local_path(
+            selected_logo
+        )
+    )
+
+
+    if (
+        logo_path is None
+        or not logo_path.exists()
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Selected logo file "
+                "was not found."
+            ),
+        )
+
+
+    # =====================================================
+    # LATEST VIDEO
+    # =====================================================
+
+    latest_video = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id
+            == project.id,
+
+            Asset.asset_type
+            == "video",
+        )
+        .order_by(
+            Asset.created_at.desc()
+        )
+        .first()
+    )
+
+
+    video_path = None
+
+
+    if latest_video:
+
+        candidate = (
+            get_local_path(
+                latest_video
+            )
+        )
+
+
+        if (
+            candidate
+            and candidate.exists()
+        ):
+
+            video_path = (
+                candidate
+            )
+
+
+    # =====================================================
+    # CREATE ZIP PACKAGE
+    # =====================================================
+
+    try:
+
+        package_path = (
+            create_brand_package(
+                project=(
+                    project
+                ),
+
+                brand_kit=(
+                    brand_kit
+                ),
+
+                logo_path=(
+                    logo_path
+                ),
+
+                video_path=(
+                    video_path
+                ),
+
+                output_directory=(
+                    GENERATED_DIR
+                ),
+            )
+        )
+
+
+        package_path = (
+            Path(package_path)
+        )
+
+
+        if not package_path.exists():
+
+            raise RuntimeError(
+                "Brand package was not created."
+            )
+
+
+        return FileResponse(
+            path=str(
+                package_path
+            ),
+
+            filename=(
+                package_path.name
+            ),
+
+            media_type=(
+                "application/zip"
+            ),
+        )
+
+
+    except Exception as error:
+
+        print(
+            "[PACKAGE] Error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not create "
+                "brand package."
+            ),
+        )
+
+============================================================
+FILE: backend\app\models.py
+============================================================
+
+import uuid
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+)
+
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
+
+
+Base = declarative_base()
+
+
+# =========================================================
+# PROJECT
+# =========================================================
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    business_name = Column(
+        String,
+        nullable=False,
+    )
+
+    description = Column(
+        Text,
+        nullable=False,
+    )
+
+    industry = Column(
+        String,
+        nullable=False,
+    )
+
+    style = Column(
+        String,
+        nullable=False,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    assets = relationship(
+        "Asset",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    brand_kit = relationship(
+        "BrandKit",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+# =========================================================
+# ASSET
+# =========================================================
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "projects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    asset_type = Column(
+        String,
+        nullable=False,
+    )
+
+    url = Column(
+        Text,
+        nullable=False,
+    )
+
+    prompt = Column(
+        Text,
+        nullable=True,
+    )
+
+    is_selected = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="assets",
+    )
+
+
+# =========================================================
+# BRAND KIT
+# =========================================================
+
+class BrandKit(Base):
+    __tablename__ = "brand_kits"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "projects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    # -----------------------------------------------------
+    # COLORS
+    # -----------------------------------------------------
+
+    primary_color = Column(
+        String,
+        nullable=False,
+        default="#000000",
+    )
+
+    secondary_color = Column(
+        String,
+        nullable=False,
+        default="#FFFFFF",
+    )
+
+    accent_color = Column(
+        String,
+        nullable=False,
+        default="#6366F1",
+    )
+
+    # -----------------------------------------------------
+    # AI BRAND STRATEGY
+    # -----------------------------------------------------
+
+    slogan = Column(
+        Text,
+        nullable=True,
+    )
+
+    personality = Column(
+        Text,
+        nullable=True,
+    )
+
+    tone = Column(
+        Text,
+        nullable=True,
+    )
+
+    target_audience = Column(
+        Text,
+        nullable=True,
+    )
+
+    marketing_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    heading_font = Column(
+        String,
+        nullable=True,
+    )
+
+    body_font = Column(
+        String,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="brand_kit",
+    )
+
+============================================================
+FILE: backend\app\services\brand_intelligence.py
+============================================================
+
+import json
+import requests
+
+
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+OLLAMA_MODEL = "qwen2.5:3b"
+
+
+def generate_brand_intelligence(
+    business_name: str,
+    industry: str,
+    description: str,
+    style: str,
+) -> dict:
+    """
+    Generate structured brand strategy using
+    the locally running Ollama model.
+    """
+
+    prompt = f"""
+You are a professional brand strategist.
+
+Create a concise brand identity for this business.
+
+Business name: {business_name}
+Industry: {industry}
+Business description: {description}
+Brand style: {style}
+
+Return ONLY valid JSON.
+
+Use exactly this structure:
+
+{{
+    "slogan": "short professional slogan",
+    "personality": [
+        "trait 1",
+        "trait 2",
+        "trait 3"
+    ],
+    "tone": "short tone of voice description",
+    "target_audience": "short target audience description",
+    "marketing_message": "one short professional marketing message",
+    "typography": {{
+        "heading": "font recommendation",
+        "body": "font recommendation"
+    }}
+}}
+
+Rules:
+- slogan must be 2 to 7 words
+- do not include markdown
+- do not include explanations
+- do not invent factual claims
+- personality must contain exactly 3 traits
+- typography should use common professional fonts
+"""
+
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0.7,
+            },
+        },
+        timeout=120,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    generated_text = result.get(
+        "response",
+        "{}",
+    )
+
+    intelligence = json.loads(
+        generated_text
+    )
+
+    return {
+        "slogan": intelligence.get(
+            "slogan",
+            ""
+        ),
+        "personality": intelligence.get(
+            "personality",
+            []
+        ),
+        "tone": intelligence.get(
+            "tone",
+            ""
+        ),
+        "target_audience": intelligence.get(
+            "target_audience",
+            ""
+        ),
+        "marketing_message": intelligence.get(
+            "marketing_message",
+            ""
+        ),
+        "typography": intelligence.get(
+            "typography",
+            {
+                "heading": "Montserrat",
+                "body": "Inter",
+            },
+        ),
+    }
+
+============================================================
+FILE: backend\app\services\image_generator.py
+============================================================
+
+import math
+import random
+from io import BytesIO
+
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+)
+
+from .logo_designer import (
+    generate_logo_specification,
+)
+
+
+# =========================================================
+# SETTINGS
+# =========================================================
+
+WIDTH = 1200
+HEIGHT = 1200
+BACKGROUND = "#FFFFFF"
+
+
+# =========================================================
+# FONT LOADER
+# =========================================================
+
+def get_font(
+    size: int,
+    font_style: str = "modern",
+):
+
+    font_map = {
+
+        "bold": [
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/segoeuib.ttf",
+        ],
+
+        "modern": [
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+        ],
+
+        "elegant": [
+            "C:/Windows/Fonts/georgiab.ttf",
+            "C:/Windows/Fonts/timesbd.ttf",
+        ],
+
+        "minimal": [
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ],
+    }
+
+
+    paths = font_map.get(
+        font_style,
+        font_map["modern"],
+    )
+
+
+    for path in paths:
+
+        try:
+
+            return ImageFont.truetype(
+                path,
+                size,
+            )
+
+        except OSError:
+
+            continue
+
+
+    return ImageFont.load_default()
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def polygon_points(
+    cx,
+    cy,
+    radius,
+    sides,
+    rotation=0,
+):
+
+    points = []
+
+
+    for index in range(sides):
+
+        angle = math.radians(
+            rotation
+            + index
+            * (360 / sides)
+            - 90
+        )
+
+
+        x = (
+            cx
+            + radius
+            * math.cos(angle)
+        )
+
+
+        y = (
+            cy
+            + radius
+            * math.sin(angle)
+        )
+
+
+        points.append(
+            (
+                x,
+                y,
+            )
+        )
+
+
+    return points
+
+
+def draw_center_text(
+    draw,
+    text,
+    center_x,
+    y,
+    font,
+    color,
+):
+
+    box = draw.textbbox(
+        (
+            0,
+            0,
+        ),
+        text,
+        font=font,
+    )
+
+
+    width = (
+        box[2]
+        - box[0]
+    )
+
+
+    draw.text(
+        (
+            center_x
+            - width / 2,
+            y,
+        ),
+        text,
+        font=font,
+        fill=color,
+    )
+
+
+def initials_from_name(
+    business_name: str,
+):
+
+    words = [
+        word
+        for word
+        in business_name.strip().split()
+        if word
+    ]
+
+
+    if not words:
+
+        return "B"
+
+
+    if len(words) == 1:
+
+        return (
+            words[0][:2]
+            .upper()
+        )
+
+
+    return (
+        words[0][0]
+        + words[-1][0]
+    ).upper()
+
+
+# =========================================================
+# BASIC SHAPE
+# =========================================================
+
+def draw_shape(
+    draw,
+    shape,
+    cx,
+    cy,
+    radius,
+    color,
+    rotation,
+    stroke_width,
+    outline_only=False,
+):
+
+    if shape == "circle":
+
+        box = (
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
+        )
+
+
+        if outline_only:
+
+            draw.ellipse(
+                box,
+                outline=color,
+                width=stroke_width,
+            )
+
+        else:
+
+            draw.ellipse(
+                box,
+                fill=color,
+            )
+
+
+    elif shape == "square":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            4,
+            rotation + 45,
+        )
+
+
+        if outline_only:
+
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
+
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "diamond":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            4,
+            rotation,
+        )
+
+
+        if outline_only:
+
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
+
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "triangle":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            3,
+            rotation,
+        )
+
+
+        if outline_only:
+
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
+
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "hexagon":
+
+        points = polygon_points(
+            cx,
+            cy,
+            radius,
+            6,
+            rotation,
+        )
+
+
+        if outline_only:
+
+            draw.line(
+                points + [points[0]],
+                fill=color,
+                width=stroke_width,
+                joint="curve",
+            )
+
+        else:
+
+            draw.polygon(
+                points,
+                fill=color,
+            )
+
+
+    elif shape == "rings":
+
+        for offset in [
+            0,
+            45,
+            90,
+        ]:
+
+            r = max(
+                25,
+                radius - offset,
+            )
+
+
+            draw.ellipse(
+                (
+                    cx - r,
+                    cy - r,
+                    cx + r,
+                    cy + r,
+                ),
+                outline=color,
+                width=max(
+                    8,
+                    stroke_width,
+                ),
+            )
+
+
+    elif shape == "arcs":
+
+        draw.arc(
+            (
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
+            ),
+            start=20 + rotation,
+            end=170 + rotation,
+            fill=color,
+            width=stroke_width,
+        )
+
+
+        inner = int(
+            radius * 0.65
+        )
+
+
+        draw.arc(
+            (
+                cx - inner,
+                cy - inner,
+                cx + inner,
+                cy + inner,
+            ),
+            start=200 + rotation,
+            end=350 + rotation,
+            fill=color,
+            width=stroke_width,
+        )
+
+
+    elif shape == "lines":
+
+        count = 5
+
+
+        for index in range(count):
+
+            offset = (
+                index - 2
+            ) * 45
+
+
+            draw.line(
+                (
+                    cx - radius,
+                    cy + offset,
+                    cx + radius,
+                    cy - offset,
+                ),
+                fill=color,
+                width=stroke_width,
+            )
+
+
+    elif shape == "waves":
+
+        points = []
+
+
+        for x in range(
+            int(cx - radius),
+            int(cx + radius) + 1,
+            10,
+        ):
+
+            relative = (
+                x - cx
+            )
+
+
+            y = (
+                cy
+                + math.sin(
+                    relative / 45
+                )
+                * radius
+                * 0.35
+            )
+
+
+            points.append(
+                (
+                    x,
+                    y,
+                )
+            )
+
+
+        draw.line(
+            points,
+            fill=color,
+            width=stroke_width,
+        )
+
+
+        second = [
+            (
+                x,
+                y + 65,
+            )
+            for x, y
+            in points
+        ]
+
+
+        draw.line(
+            second,
+            fill=color,
+            width=max(
+                8,
+                stroke_width - 5,
+            ),
+        )
+
+
+    elif shape == "interlocking":
+
+        r = (
+            radius * 0.7
+        )
+
+
+        draw.ellipse(
+            (
+                cx - r - 55,
+                cy - r,
+                cx + r - 55,
+                cy + r,
+            ),
+            outline=color,
+            width=stroke_width,
+        )
+
+
+        draw.ellipse(
+            (
+                cx - r + 55,
+                cy - r,
+                cx + r + 55,
+                cy + r,
+            ),
+            outline=color,
+            width=stroke_width,
+        )
+
+
+    else:
+
+        draw.ellipse(
+            (
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
+            ),
+            fill=color,
+        )
+
+
+# =========================================================
+# MONOGRAM
+# =========================================================
+
+def render_monogram(
+    draw,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    initials = (
+        initials_from_name(
+            business_name
+        )
+    )
+
+
+    shape = (
+        specification[
+            "shape"
+        ]
+    )
+
+
+    draw_shape(
+        draw,
+        shape,
+        cx,
+        cy,
+        190,
+        primary,
+        specification[
+            "rotation"
+        ],
+        specification[
+            "stroke_width"
+        ],
+        outline_only=True,
+    )
+
+
+    font = get_font(
+        135,
+        specification[
+            "font_style"
+        ],
+    )
+
+
+    draw_center_text(
+        draw,
+        initials,
+        cx,
+        cy - 85,
+        font,
+        accent,
+    )
+
+
+# =========================================================
+# LETTERMARK
+# =========================================================
+
+def render_lettermark(
+    draw,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    initials = (
+        initials_from_name(
+            business_name
+        )
+    )
+
+
+    font = get_font(
+        210,
+        "bold",
+    )
+
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    # First copy
+    draw_center_text(
+        draw,
+        initials,
+        cx - 20,
+        cy - 145,
+        font,
+        primary,
+    )
+
+
+    # Offset accent creates
+    # a custom overlapping lettermark.
+    draw_center_text(
+        draw,
+        initials,
+        cx + 20,
+        cy - 115,
+        font,
+        accent,
+    )
+
+
+# =========================================================
+# ABSTRACT
+# =========================================================
+
+def render_abstract(
+    draw,
+    specification,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    secondary = (
+        specification[
+            "secondary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    layers = (
+        specification[
+            "layers"
+        ]
+    )
+
+
+    for index in range(
+        layers
+    ):
+
+        radius = (
+            190
+            - index * 35
+        )
+
+
+        color = [
+            primary,
+            secondary,
+            accent,
+        ][
+            index % 3
+        ]
+
+
+        rotation = (
+            specification[
+                "rotation"
+            ]
+            + index * 28
+        )
+
+
+        # Offset layers to make
+        # abstract compositions.
+        offset_x = (
+            (index - layers / 2)
+            * 20
+        )
+
+
+        offset_y = (
+            math.sin(index)
+            * 25
+        )
+
+
+        draw_shape(
+            draw,
+            specification[
+                "shape"
+            ],
+            cx + offset_x,
+            cy + offset_y,
+            radius,
+            color,
+            rotation,
+            specification[
+                "stroke_width"
+            ],
+            outline_only=(
+                index % 2 == 1
+            ),
+        )
+
+
+# =========================================================
+# GEOMETRIC
+# =========================================================
+
+def render_geometric(
+    draw,
+    specification,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    secondary = (
+        specification[
+            "secondary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    draw_shape(
+        draw,
+        specification[
+            "shape"
+        ],
+        cx,
+        cy,
+        205,
+        primary,
+        specification[
+            "rotation"
+        ],
+        specification[
+            "stroke_width"
+        ],
+        outline_only=True,
+    )
+
+
+    inner_shape = (
+        random.choice(
+            [
+                "circle",
+                "diamond",
+                "triangle",
+                "hexagon",
+            ]
+        )
+    )
+
+
+    draw_shape(
+        draw,
+        inner_shape,
+        cx,
+        cy,
+        115,
+        secondary,
+        specification[
+            "rotation"
+        ] + 30,
+        specification[
+            "stroke_width"
+        ],
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 35,
+            cy - 35,
+            cx + 35,
+            cy + 35,
+        ),
+        fill=accent,
+    )
+
+
+# =========================================================
+# EMBLEM
+# =========================================================
+
+def render_emblem(
+    draw,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 215,
+            cy - 215,
+            cx + 215,
+            cy + 215,
+        ),
+        fill=primary,
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 170,
+            cy - 170,
+            cx + 170,
+            cy + 170,
+        ),
+        outline=accent,
+        width=(
+            specification[
+                "stroke_width"
+            ]
+        ),
+    )
+
+
+    initials = (
+        initials_from_name(
+            business_name
+        )
+    )
+
+
+    font = get_font(
+        125,
+        "bold",
+    )
+
+
+    draw_center_text(
+        draw,
+        initials,
+        cx,
+        cy - 80,
+        font,
+        "#FFFFFF",
+    )
+
+
+# =========================================================
+# NEGATIVE SPACE
+# =========================================================
+
+def render_negative_space(
+    draw,
+    specification,
+    cx,
+    cy,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    draw_shape(
+        draw,
+        specification[
+            "shape"
+        ],
+        cx,
+        cy,
+        205,
+        primary,
+        specification[
+            "rotation"
+        ],
+        specification[
+            "stroke_width"
+        ],
+    )
+
+
+    # White geometric cutout
+    draw_shape(
+        draw,
+        "triangle",
+        cx + 25,
+        cy - 10,
+        105,
+        BACKGROUND,
+        specification[
+            "rotation"
+        ] + 20,
+        12,
+    )
+
+
+    draw.ellipse(
+        (
+            cx - 35,
+            cy - 35,
+            cx + 35,
+            cy + 35,
+        ),
+        fill=accent,
+    )
+
+
+# =========================================================
+# COMBINATION SYMBOL
+# =========================================================
+
+def render_combination(
+    draw,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    render_abstract(
+        draw,
+        specification,
+        cx,
+        cy,
+    )
+
+
+    initials = (
+        initials_from_name(
+            business_name
+        )
+    )
+
+
+    font = get_font(
+        90,
+        "bold",
+    )
+
+
+    draw_center_text(
+        draw,
+        initials,
+        cx,
+        cy - 55,
+        font,
+        BACKGROUND,
+    )
+
+
+# =========================================================
+# WORDMARK
+# =========================================================
+
+def render_wordmark(
+    draw,
+    specification,
+    business_name,
+):
+
+    primary = (
+        specification[
+            "primary_color"
+        ]
+    )
+
+
+    accent = (
+        specification[
+            "accent_color"
+        ]
+    )
+
+
+    name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+
+    font_size = 110
+
+
+    if len(name) > 12:
+
+        font_size = 80
+
+
+    if len(name) > 20:
+
+        font_size = 58
+
+
+    font = get_font(
+        font_size,
+        specification[
+            "font_style"
+        ],
+    )
+
+
+    draw_center_text(
+        draw,
+        name,
+        WIDTH // 2,
+        430,
+        font,
+        primary,
+    )
+
+
+    # Decorative brand stroke
+    line_width = min(
+        400,
+        max(
+            150,
+            len(name) * 25,
+        ),
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            WIDTH // 2
+            - line_width // 2,
+
+            590,
+
+            WIDTH // 2
+            + line_width // 2,
+
+            604,
+        ),
+        radius=7,
+        fill=accent,
+    )
+
+
+# =========================================================
+# COMPANY NAME
+# =========================================================
+
+def render_company_name(
+    draw,
+    business_name,
+    specification,
+    y=740,
+):
+
+    name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+
+    if len(name) <= 10:
+
+        font_size = 88
+
+
+    elif len(name) <= 16:
+
+        font_size = 70
+
+
+    elif len(name) <= 22:
+
+        font_size = 57
+
+
+    else:
+
+        font_size = 45
+
+
+    font = get_font(
+        font_size,
+        specification[
+            "font_style"
+        ],
+    )
+
+
+    draw_center_text(
+        draw,
+        name,
+        WIDTH // 2,
+        y,
+        font,
+        specification[
+            "primary_color"
+        ],
+    )
+
+
+# =========================================================
+# MAIN LOGO GENERATOR
+# =========================================================
+
+def generate_logo_image(
+    business_name: str,
+    industry: str,
+    style: str,
+    description: str = "",
+) -> bytes:
+
+    # =====================================================
+    # GET UNIQUE AI DESIGN SPECIFICATION
+    # =====================================================
+
+    specification = (
+        generate_logo_specification(
+            business_name=business_name,
+            industry=industry,
+            style=style,
+            description=description,
+        )
+    )
+
+
+    print("")
+    print(
+        "======================================"
+    )
+    print(
+        "AI LOGO SPECIFICATION"
+    )
+    print(
+        "======================================"
+    )
+    print(
+        specification
+    )
+
+
+    # =====================================================
+    # CANVAS
+    # =====================================================
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        BACKGROUND,
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    logo_type = (
+        specification[
+            "logo_type"
+        ]
+    )
+
+
+    layout = (
+        specification[
+            "layout"
+        ]
+    )
+
+
+    # =====================================================
+    # WORDMARK
+    # =====================================================
+
+    if logo_type == "wordmark":
+
+        render_wordmark(
+            draw,
+            specification,
+            business_name,
+        )
+
+
+    # =====================================================
+    # SYMBOL LEFT
+    # =====================================================
+
+    elif layout == "symbol-left":
+
+        cx = 320
+        cy = 520
+
+
+        render_logo_symbol(
+            draw,
+            logo_type,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+        name = (
+            business_name
+            .strip()
+            .upper()
+        )
+
+
+        font_size = (
+            65
+            if len(name) <= 14
+            else 48
+        )
+
+
+        font = get_font(
+            font_size,
+            specification[
+                "font_style"
+            ],
+        )
+
+
+        draw.text(
+            (
+                570,
+                470,
+            ),
+            name,
+            font=font,
+            fill=(
+                specification[
+                    "primary_color"
+                ]
+            ),
+        )
+
+
+    # =====================================================
+    # STANDARD / EMBLEM
+    # =====================================================
+
+    else:
+
+        cx = (
+            WIDTH // 2
+        )
+
+        cy = 415
+
+
+        render_logo_symbol(
+            draw,
+            logo_type,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+        if logo_type not in [
+            "wordmark",
+        ]:
+
+            render_company_name(
+                draw,
+                business_name,
+                specification,
+                y=720,
+            )
+
+
+    # =====================================================
+    # INDUSTRY LABEL
+    # =====================================================
+
+    industry_text = (
+        industry
+        .replace(
+            "_",
+            " "
+        )
+        .replace(
+            "-",
+            " "
+        )
+        .upper()
+    )
+
+
+    small_font = get_font(
+        27,
+        "minimal",
+    )
+
+
+    draw_center_text(
+        draw,
+        industry_text,
+        WIDTH // 2,
+        860,
+        small_font,
+        specification[
+            "secondary_color"
+        ],
+    )
+
+
+    # =====================================================
+    # EXPORT PNG
+    # =====================================================
+
+    buffer = BytesIO()
+
+
+    image.save(
+        buffer,
+        format="PNG",
+        optimize=True,
+    )
+
+
+    buffer.seek(
+        0
+    )
+
+
+    return buffer.getvalue()
+
+
+# =========================================================
+# SYMBOL ROUTER
+# =========================================================
+
+def render_logo_symbol(
+    draw,
+    logo_type,
+    specification,
+    business_name,
+    cx,
+    cy,
+):
+
+    if logo_type == "monogram":
+
+        render_monogram(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "lettermark":
+
+        render_lettermark(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "abstract":
+
+        render_abstract(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "geometric":
+
+        render_geometric(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "emblem":
+
+        render_emblem(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "negative-space":
+
+        render_negative_space(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+
+    elif logo_type == "combination":
+
+        render_combination(
+            draw,
+            specification,
+            business_name,
+            cx,
+            cy,
+        )
+
+
+    else:
+
+        render_abstract(
+            draw,
+            specification,
+            cx,
+            cy,
+        )
+
+============================================================
+FILE: backend\app\services\image_provider.py
+============================================================
+
+import os
+
+from .flux_provider import (
+    generate_flux_campaign,
+    generate_flux_symbol,
+)
+from .replicate_provider import generate_replicate_image
+
+
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
+DEFAULT_PROVIDER = os.getenv(
+    "IMAGE_PROVIDER",
+    "auto",
+).lower()
+
+
+# =========================================================
+# LOCAL PROVIDER
+# =========================================================
+
+def generate_local_image(**kwargs):
+    """
+    Reserved for a future fully local/offline image generator.
+    """
+
+    raise RuntimeError(
+        "Local campaign image provider has not been configured."
+    )
+
+
+# =========================================================
+# FLUX / POLLINATIONS PROVIDER
+# =========================================================
+
+def generate_flux_image(**kwargs):
+    """
+    Generate an image using Pollinations/FLUX.
+
+    purpose:
+        campaign -> marketing imagery
+        symbol   -> isolated logo symbol
+    """
+
+    specification = kwargs.get(
+        "specification",
+        {},
+    )
+
+    industry = kwargs.get(
+        "industry",
+        "",
+    )
+
+    style = kwargs.get(
+        "style",
+        "",
+    )
+
+    purpose = kwargs.get(
+        "purpose",
+        "campaign",
+    ).lower()
+
+
+    if purpose == "campaign":
+
+        return generate_flux_campaign(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
+
+
+    if purpose == "symbol":
+
+        return generate_flux_symbol(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
+
+
+    raise ValueError(
+        f"Unknown image purpose: {purpose}"
+    )
+
+
+# =========================================================
+# REPLICATE PROVIDER
+# =========================================================
+
+def generate_replicate_provider_image(**kwargs):
+    """
+    Generate an image through Replicate.
+
+    Requires:
+        REPLICATE_API_TOKEN
+        REPLICATE_IMAGE_MODEL
+    """
+
+    specification = kwargs.get(
+        "specification",
+        {},
+    )
+
+    industry = kwargs.get(
+        "industry",
+        "",
+    )
+
+    style = kwargs.get(
+        "style",
+        "",
+    )
+
+    return generate_replicate_image(
+        specification=specification,
+        industry=industry,
+        style=style,
+    )
+
+
+# =========================================================
+# STUDENT PROVIDER
+# =========================================================
+
+def generate_student_image(**kwargs):
+    """
+    Reserved for a future student-benefit image provider.
+    """
+
+    raise RuntimeError(
+        "Student image provider is not configured."
+    )
+
+
+# =========================================================
+# ROUTER
+# =========================================================
+
+def generate_image(
+    provider=None,
+    **kwargs,
+):
+    """
+    Route image generation to the requested provider.
+
+    Supported providers:
+        auto
+        replicate
+        flux
+        local
+        student
+    """
+
+    selected = (
+        provider
+        or DEFAULT_PROVIDER
+    ).lower()
+
+
+    # -----------------------------------------------------
+    # LOCAL
+    # -----------------------------------------------------
+
+    if selected == "local":
+
+        return generate_local_image(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # FLUX / POLLINATIONS
+    # -----------------------------------------------------
+
+    if selected == "flux":
+
+        return generate_flux_image(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # REPLICATE
+    # -----------------------------------------------------
+
+    if selected == "replicate":
+
+        return generate_replicate_provider_image(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # STUDENT
+    # -----------------------------------------------------
+
+    if selected == "student":
+
+        return generate_student_image(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # AUTOMATIC FALLBACK
+    # -----------------------------------------------------
+
+    if selected == "auto":
+
+        providers = [
+            (
+                "replicate",
+                generate_replicate_provider_image,
+            ),
+            (
+                "flux",
+                generate_flux_image,
+            ),
+        ]
+
+        errors = []
+
+
+        for name, generator in providers:
+
+            try:
+
+                print(
+                    f"Trying image provider: {name}"
+                )
+
+
+                image_bytes = generator(
+                    **kwargs
+                )
+
+
+                if not isinstance(
+                    image_bytes,
+                    (bytes, bytearray),
+                ):
+
+                    raise RuntimeError(
+                        f"{name} provider returned "
+                        "non-binary image data."
+                    )
+
+
+                if len(image_bytes) < 1000:
+
+                    raise RuntimeError(
+                        f"{name} provider returned "
+                        "invalid image data."
+                    )
+
+
+                print(
+                    f"Image provider succeeded: {name}"
+                )
+
+
+                return bytes(
+                    image_bytes
+                )
+
+
+            except Exception as error:
+
+                errors.append(
+                    f"{name}: {error}"
+                )
+
+                print(
+                    f"{name} unavailable:",
+                    repr(error),
+                )
+
+
+        # ---------------------------------------------
+        # FINAL LOCAL FALLBACK
+        # ---------------------------------------------
+
+        try:
+
+            print(
+                "Trying image provider: local"
+            )
+
+
+            return generate_local_image(
+                **kwargs
+            )
+
+
+        except Exception as error:
+
+            errors.append(
+                f"local: {error}"
+            )
+
+
+        raise RuntimeError(
+            "All image providers failed. "
+            + " | ".join(errors)
+        )
+
+
+    # -----------------------------------------------------
+    # UNKNOWN PROVIDER
+    # -----------------------------------------------------
+
+    raise ValueError(
+        f"Unknown image provider: {selected}"
+    )
+
+============================================================
+FILE: backend\app\services\logo_designer.py
+============================================================
+
+import json
+import random
+import uuid
+
+import requests
+
+
+# =========================================================
+# OLLAMA SETTINGS
+# =========================================================
+
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+OLLAMA_MODEL = "qwen2.5:3b"
+
+
+# =========================================================
+# ALLOWED DESIGN VALUES
+# =========================================================
+
+LOGO_TYPES = [
+    "monogram",
+    "lettermark",
+    "abstract",
+    "geometric",
+    "emblem",
+    "combination",
+    "negative-space",
+    "wordmark",
+]
+
+
+SHAPES = [
+    "circle",
+    "diamond",
+    "hexagon",
+    "triangle",
+    "square",
+    "rings",
+    "arcs",
+    "lines",
+    "waves",
+    "interlocking",
+]
+
+
+LAYOUTS = [
+    "symbol-top",
+    "symbol-left",
+    "emblem",
+    "wordmark",
+]
+
+
+FONT_STYLES = [
+    "bold",
+    "modern",
+    "elegant",
+    "minimal",
+]
+
+
+GEOMETRY_STYLES = [
+    "sharp",
+    "rounded",
+    "mixed",
+]
+
+
+SYMMETRY_TYPES = [
+    "none",
+    "bilateral",
+    "radial",
+]
+
+
+# =========================================================
+# CREATIVE DIRECTIONS
+# =========================================================
+
+CREATIVE_DIRECTIONS = [
+
+    # -----------------------------------------------------
+    # CONCEPT 1
+    # SIMPLE / GEOMETRIC
+    # -----------------------------------------------------
+
+    {
+        "name": "minimal-geometric",
+
+        "description": (
+            "Create a highly minimal geometric identity. "
+            "Use one dominant primitive or a clever combination "
+            "of at most two forms. The symbol must have a strong "
+            "silhouette and remain recognizable at very small sizes. "
+            "Avoid decorative complexity."
+        ),
+
+        "preferred_types": [
+            "geometric",
+            "abstract",
+        ],
+
+        "preferred_shapes": [
+            "circle",
+            "diamond",
+            "hexagon",
+            "square",
+            "arcs",
+        ],
+    },
+
+
+    # -----------------------------------------------------
+    # CONCEPT 2
+    # SYMBOLIC / NEGATIVE SPACE
+    # -----------------------------------------------------
+
+    {
+        "name": "symbolic-negative-space",
+
+        "description": (
+            "Create a conceptual symbol based on a meaningful visual "
+            "metaphor or negative space. The hidden idea must connect "
+            "directly to the business, product, customer benefit or "
+            "industry. Do not simply overlap generic polygons."
+        ),
+
+        "preferred_types": [
+            "negative-space",
+            "combination",
+        ],
+
+        "preferred_shapes": [
+            "arcs",
+            "waves",
+            "lines",
+            "circle",
+            "triangle",
+        ],
+    },
+
+
+    # -----------------------------------------------------
+    # CONCEPT 3
+    # TYPOGRAPHIC
+    # -----------------------------------------------------
+
+    {
+        "name": "typographic",
+
+        "description": (
+            "Create a typography-led identity using the company's "
+            "initials or name. Geometry should support the letterform "
+            "rather than dominate it. The result should feel custom, "
+            "recognizable and suitable for professional branding."
+        ),
+
+        "preferred_types": [
+            "monogram",
+            "lettermark",
+            "wordmark",
+        ],
+
+        "preferred_shapes": [
+            "circle",
+            "square",
+            "diamond",
+            "lines",
+        ],
+    },
+]
+
+
+# =========================================================
+# DEFAULT PALETTES
+# Used only if Ollama does not provide valid colors.
+# =========================================================
+
+FALLBACK_PALETTES = [
+
+    {
+        "primary": "#0F172A",
+        "secondary": "#2563EB",
+        "accent": "#38BDF8",
+    },
+
+    {
+        "primary": "#312E81",
+        "secondary": "#7C3AED",
+        "accent": "#C084FC",
+    },
+
+    {
+        "primary": "#064E3B",
+        "secondary": "#059669",
+        "accent": "#34D399",
+    },
+
+    {
+        "primary": "#7C2D12",
+        "secondary": "#EA580C",
+        "accent": "#FDBA74",
+    },
+
+    {
+        "primary": "#18181B",
+        "secondary": "#52525B",
+        "accent": "#F59E0B",
+    },
+]
+
+
+# =========================================================
+# MAIN AI LOGO DESIGNER
+# =========================================================
+
+def generate_logo_specification(
+    business_name: str,
+    industry: str,
+    style: str,
+    description: str = "",
+    direction_index: int | None = None,
+) -> dict:
+
+    # -----------------------------------------------------
+    # CHOOSE CREATIVE DIRECTION
+    # -----------------------------------------------------
+
+    if direction_index is None:
+
+        direction_index = random.randrange(
+            len(CREATIVE_DIRECTIONS)
+        )
+
+
+    direction_index = (
+        direction_index
+        % len(CREATIVE_DIRECTIONS)
+    )
+
+
+    direction = CREATIVE_DIRECTIONS[
+        direction_index
+    ]
+
+
+    generation_id = str(
+        uuid.uuid4()
+    )
+
+
+    # -----------------------------------------------------
+    # BUILD ART-DIRECTION PROMPT
+    # -----------------------------------------------------
+
+    prompt = f"""
+You are a senior brand identity designer and logo art director.
+
+Your task is to create ONE professional vector logo design specification.
+
+Do not draw the logo.
+A deterministic SVG renderer will construct the final artwork from your JSON.
+
+==================================================
+BUSINESS
+==================================================
+
+Business name:
+{business_name}
+
+Industry:
+{industry}
+
+Requested brand style:
+{style}
+
+Business description:
+{description}
+
+==================================================
+CREATIVE DIRECTION
+==================================================
+
+Direction:
+{direction["name"]}
+
+Design objective:
+{direction["description"]}
+
+Preferred logo families:
+{", ".join(direction["preferred_types"])}
+
+Preferred geometric vocabulary:
+{", ".join(direction["preferred_shapes"])}
+
+Generation ID:
+{generation_id}
+
+==================================================
+DESIGN PROCESS
+==================================================
+
+Understand what the business does before selecting the symbol.
+
+Choose a visual metaphor connected to at least one of:
+
+- the product or service
+- the customer's desired outcome
+- the company's personality
+- movement or transformation
+- trust
+- growth
+- precision
+- connection
+- speed
+- simplicity
+- innovation
+
+Do not use a shape simply because it looks technological.
+
+Every major visual decision must support the brand concept.
+
+==================================================
+PRODUCTION REQUIREMENTS
+==================================================
+
+The logo must:
+
+- work as an SVG
+- work at small sizes
+- have a recognizable silhouette
+- remain understandable in one color
+- contain minimal unnecessary detail
+- use clean vector-friendly geometry
+- avoid photographic imagery
+- avoid humans and characters
+- avoid realistic objects
+- avoid 3D
+- avoid gradients
+- avoid glow
+- avoid shadows
+- avoid glass effects
+- avoid metallic effects
+- avoid generic AI-network imagery
+- avoid random overlapping polygons
+- use no more than three brand colors
+
+==================================================
+ALLOWED VALUES
+==================================================
+
+logo_type:
+{", ".join(LOGO_TYPES)}
+
+shape:
+{", ".join(SHAPES)}
+
+layout:
+{", ".join(LAYOUTS)}
+
+font_style:
+{", ".join(FONT_STYLES)}
+
+geometry_style:
+{", ".join(GEOMETRY_STYLES)}
+
+symmetry:
+{", ".join(SYMMETRY_TYPES)}
+
+==================================================
+COLOR DIRECTION
+==================================================
+
+Create the palette specifically for this business.
+
+The palette should reflect:
+
+- industry
+- requested style
+- brand personality
+- target audience
+- intended market positioning
+
+Avoid muddy combinations.
+
+Ensure sufficient visual contrast.
+
+Do not automatically use blue just because the business is related to technology.
+
+Do not copy common sample palettes.
+
+==================================================
+OUTPUT
+==================================================
+
+Return valid JSON ONLY.
+
+Use this schema:
+
+{{
+    "logo_type": "<allowed logo type>",
+    "shape": "<allowed shape>",
+    "layout": "<allowed layout>",
+    "font_style": "<allowed font style>",
+
+    "visual_metaphor": "<what the symbol represents>",
+
+    "composition": "<how the symbol geometry should be arranged>",
+
+    "geometry_style": "<sharp, rounded, or mixed>",
+
+    "symmetry": "<none, bilateral, or radial>",
+
+    "complexity": <integer from 1 to 3>,
+
+    "primary_color": "<6-digit HEX>",
+    "secondary_color": "<6-digit HEX>",
+    "accent_color": "<6-digit HEX>",
+
+    "rotation": <integer from 0 to 180>,
+
+    "layers": <integer from 1 to 4>,
+
+    "stroke_width": <integer from 8 to 35>,
+
+    "concept": "<short explanation connecting the identity to the business>"
+}}
+
+==================================================
+IMPORTANT RULES
+==================================================
+
+- Return JSON only.
+- Do not return Markdown.
+- Do not include explanations outside JSON.
+- Do not copy colors from examples or defaults.
+- Choose colors from the actual business context.
+- Make this direction visually distinct.
+- Avoid "interlocking" unless connectivity is genuinely the strongest metaphor.
+- Prefer the logo families assigned to this creative direction.
+- Prefer the shapes assigned to this creative direction.
+- complexity must be 1, 2, or 3.
+- rotation must be between 0 and 180.
+- layers must be between 1 and 4.
+- stroke_width must be between 8 and 35.
+- Every color must be a valid six-digit HEX color.
+"""
+
+
+    # -----------------------------------------------------
+    # ASK OLLAMA
+    # -----------------------------------------------------
+
+    try:
+
+        response = requests.post(
+            OLLAMA_URL,
+
+            json={
+                "model": OLLAMA_MODEL,
+
+                "prompt": prompt,
+
+                "stream": False,
+
+                "format": "json",
+
+                "options": {
+
+                    # Enough creativity for variation
+                    # without becoming too unpredictable.
+                    "temperature": 0.85,
+
+                    "seed": random.randint(
+                        1,
+                        2_000_000_000,
+                    ),
+                },
+            },
+
+            timeout=120,
+        )
+
+
+        response.raise_for_status()
+
+
+        result = response.json()
+
+
+        raw_response = result.get(
+            "response",
+            "{}",
+        )
+
+
+        specification = json.loads(
+            raw_response
+        )
+
+
+    except Exception as error:
+
+        print(
+            "Logo designer AI error:",
+            repr(error),
+        )
+
+
+        specification = {}
+
+
+    # -----------------------------------------------------
+    # VALIDATE EVERYTHING
+    # -----------------------------------------------------
+
+    return sanitize_specification(
+        specification=specification,
+        direction=direction,
+        direction_index=direction_index,
+    )
+
+
+# =========================================================
+# SANITIZE AI OUTPUT
+# =========================================================
+
+def sanitize_specification(
+    specification: dict,
+    direction: dict,
+    direction_index: int,
+) -> dict:
+
+    # -----------------------------------------------------
+    # LOGO TYPE
+    # -----------------------------------------------------
+
+    preferred_types = direction[
+        "preferred_types"
+    ]
+
+
+    logo_type = specification.get(
+        "logo_type",
+        preferred_types[0],
+    )
+
+
+    if logo_type not in LOGO_TYPES:
+
+        logo_type = preferred_types[0]
+
+
+    # Force each concept to remain within
+    # its intended creative family.
+    if logo_type not in preferred_types:
+
+        logo_type = preferred_types[0]
+
+
+    # -----------------------------------------------------
+    # SHAPE
+    # -----------------------------------------------------
+
+    preferred_shapes = direction[
+        "preferred_shapes"
+    ]
+
+
+    shape = specification.get(
+        "shape",
+        preferred_shapes[0],
+    )
+
+
+    # Prevent the model from collapsing all
+    # three concepts into the same geometry.
+    if shape not in preferred_shapes:
+
+        shape = preferred_shapes[0]
+
+
+    # -----------------------------------------------------
+    # LAYOUT
+    # -----------------------------------------------------
+
+    layout = specification.get(
+        "layout",
+        "symbol-top",
+    )
+
+
+    if layout not in LAYOUTS:
+
+        layout = "symbol-top"
+
+
+    # Wordmarks should use wordmark layout.
+    if logo_type == "wordmark":
+
+        layout = "wordmark"
+
+
+    # -----------------------------------------------------
+    # FONT STYLE
+    # -----------------------------------------------------
+
+    font_style = specification.get(
+        "font_style",
+        "modern",
+    )
+
+
+    if font_style not in FONT_STYLES:
+
+        font_style = "modern"
+
+
+    # -----------------------------------------------------
+    # GEOMETRY STYLE
+    # -----------------------------------------------------
+
+    geometry_style = specification.get(
+        "geometry_style",
+        "rounded",
+    )
+
+
+    if geometry_style not in GEOMETRY_STYLES:
+
+        geometry_style = "rounded"
+
+
+    # -----------------------------------------------------
+    # SYMMETRY
+    # -----------------------------------------------------
+
+    symmetry = specification.get(
+        "symmetry",
+        "bilateral",
+    )
+
+
+    if symmetry not in SYMMETRY_TYPES:
+
+        symmetry = "bilateral"
+
+
+    # -----------------------------------------------------
+    # FALLBACK PALETTE
+    # -----------------------------------------------------
+
+    palette = FALLBACK_PALETTES[
+        direction_index
+        % len(FALLBACK_PALETTES)
+    ]
+
+
+    primary = clean_hex(
+        specification.get(
+            "primary_color"
+        ),
+
+        palette[
+            "primary"
+        ],
+    )
+
+
+    secondary = clean_hex(
+        specification.get(
+            "secondary_color"
+        ),
+
+        palette[
+            "secondary"
+        ],
+    )
+
+
+    accent = clean_hex(
+        specification.get(
+            "accent_color"
+        ),
+
+        palette[
+            "accent"
+        ],
+    )
+
+
+    # -----------------------------------------------------
+    # RETURN CLEAN SPECIFICATION
+    # -----------------------------------------------------
+
+    return {
+
+        "logo_type":
+        logo_type,
+
+        "shape":
+        shape,
+
+        "layout":
+        layout,
+
+        "font_style":
+        font_style,
+
+
+        "visual_metaphor":
+        clean_text(
+            specification.get(
+                "visual_metaphor"
+            ),
+
+            (
+                "A simple symbol representing "
+                "the brand's core value."
+            ),
+        ),
+
+
+        "composition":
+        clean_text(
+            specification.get(
+                "composition"
+            ),
+
+            "Balanced centered composition.",
+        ),
+
+
+        "geometry_style":
+        geometry_style,
+
+
+        "symmetry":
+        symmetry,
+
+
+        "complexity":
+        clamp_integer(
+            specification.get(
+                "complexity",
+                2,
+            ),
+
+            1,
+            3,
+            2,
+        ),
+
+
+        "primary_color":
+        primary,
+
+
+        "secondary_color":
+        secondary,
+
+
+        "accent_color":
+        accent,
+
+
+        "rotation":
+        clamp_integer(
+            specification.get(
+                "rotation",
+                0,
+            ),
+
+            0,
+            180,
+            0,
+        ),
+
+
+        "layers":
+        clamp_integer(
+            specification.get(
+                "layers",
+                2,
+            ),
+
+            1,
+            4,
+            2,
+        ),
+
+
+        "stroke_width":
+        clamp_integer(
+            specification.get(
+                "stroke_width",
+                18,
+            ),
+
+            8,
+            35,
+            18,
+        ),
+
+
+        "concept":
+        clean_text(
+            specification.get(
+                "concept"
+            ),
+
+            (
+                "Distinctive professional "
+                "brand identity."
+            ),
+        ),
+
+
+        "creative_direction":
+        direction[
+            "name"
+        ],
+    }
+
+
+# =========================================================
+# HEX VALIDATION
+# =========================================================
+
+def clean_hex(
+    value,
+    fallback,
+):
+
+    if not isinstance(
+        value,
+        str,
+    ):
+
+        return fallback
+
+
+    value = value.strip()
+
+
+    if len(value) != 7:
+
+        return fallback
+
+
+    if not value.startswith("#"):
+
+        return fallback
+
+
+    try:
+
+        int(
+            value[1:],
+            16,
+        )
+
+
+        return value.upper()
+
+
+    except ValueError:
+
+        return fallback
+
+
+# =========================================================
+# INTEGER VALIDATION
+# =========================================================
+
+def clamp_integer(
+    value,
+    minimum,
+    maximum,
+    fallback,
+):
+
+    try:
+
+        value = int(
+            value
+        )
+
+
+        return max(
+            minimum,
+            min(
+                maximum,
+                value,
+            ),
+        )
+
+
+    except Exception:
+
+        return fallback
+
+
+# =========================================================
+# TEXT VALIDATION
+# =========================================================
+
+def clean_text(
+    value,
+    fallback,
+):
+
+    if not isinstance(
+        value,
+        str,
+    ):
+
+        return fallback
+
+
+    value = value.strip()
+
+
+    if not value:
+
+        return fallback
+
+
+    # Prevent extremely verbose local-model outputs
+    # from propagating through the renderer.
+    return value[:500]
+
+============================================================
+FILE: backend\app\services\logo_renderer.py
+============================================================
+
+import html
+import math
+import random
+from io import BytesIO
+
+from PIL import Image, ImageDraw, ImageFont
+
+
+WIDTH = 1200
+HEIGHT = 1200
+BACKGROUND = "#FFFFFF"
+
+
+# =========================================================
+# FONTS
+# =========================================================
+
+def get_font(
+    size: int,
+    style: str = "modern",
+):
+
+    fonts = {
+        "modern": [
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+        ],
+
+        "bold": [
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/segoeuib.ttf",
+        ],
+
+        "elegant": [
+            "C:/Windows/Fonts/georgiab.ttf",
+            "C:/Windows/Fonts/timesbd.ttf",
+        ],
+
+        "minimal": [
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ],
+    }
+
+    for path in fonts.get(
+        style,
+        fonts["modern"],
+    ):
+
+        try:
+
+            return ImageFont.truetype(
+                path,
+                size,
+            )
+
+        except OSError:
+
+            continue
+
+    return ImageFont.load_default()
+
+
+# =========================================================
+# GEOMETRY
+# =========================================================
+
+def polygon_points(
+    cx,
+    cy,
+    radius,
+    sides,
+    rotation=0,
+):
+
+    points = []
+
+    for index in range(sides):
+
+        angle = math.radians(
+            rotation
+            - 90
+            + index
+            * (360 / sides)
+        )
+
+        points.append(
+            (
+                cx
+                + radius
+                * math.cos(angle),
+
+                cy
+                + radius
+                * math.sin(angle),
+            )
+        )
+
+    return points
+
+
+def svg_points(
+    points,
+):
+
+    return " ".join(
+        f"{round(x, 2)},{round(y, 2)}"
+        for x, y in points
+    )
+
+
+def initials(
+    business_name,
+):
+
+    words = [
+        word
+        for word
+        in business_name
+        .strip()
+        .split()
+        if word
+    ]
+
+    if not words:
+
+        return "B"
+
+    if len(words) == 1:
+
+        return (
+            words[0][:2]
+            .upper()
+        )
+
+    return (
+        words[0][0]
+        + words[-1][0]
+    ).upper()
+
+
+# =========================================================
+# PNG TEXT
+# =========================================================
+
+def draw_centered_text(
+    draw,
+    text,
+    x,
+    y,
+    font,
+    fill,
+):
+
+    bbox = draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+    )
+
+    width = (
+        bbox[2]
+        - bbox[0]
+    )
+
+    draw.text(
+        (
+            x - width / 2,
+            y,
+        ),
+        text,
+        font=font,
+        fill=fill,
+    )
+
+
+# =========================================================
+# RANDOM DESIGN PARAMETERS
+# =========================================================
+
+def build_parameters(
+    specification,
+):
+
+    return {
+        "rotation":
+        specification.get(
+            "rotation",
+            random.randint(
+                0,
+                180,
+            ),
+        ),
+
+        "layers":
+        specification.get(
+            "layers",
+            random.randint(
+                2,
+                5,
+            ),
+        ),
+
+        "stroke":
+        specification.get(
+            "stroke_width",
+            random.randint(
+                12,
+                30,
+            ),
+        ),
+
+        "offset":
+        random.randint(
+            25,
+            80,
+        ),
+
+        "scale":
+        random.uniform(
+            0.75,
+            1.15,
+        ),
+
+        "curve":
+        random.randint(
+            45,
+            140,
+        ),
+
+        "secondary_rotation":
+        random.randint(
+            15,
+            90,
+        ),
+    }
+
+
+# =========================================================
+# SVG SYMBOL
+# =========================================================
+
+def render_svg_symbol(
+    specification,
+    business_name,
+    parameters,
+):
+
+    logo_type = specification[
+        "logo_type"
+    ]
+
+    shape = specification[
+        "shape"
+    ]
+
+    primary = specification[
+        "primary_color"
+    ]
+
+    secondary = specification[
+        "secondary_color"
+    ]
+
+    accent = specification[
+        "accent_color"
+    ]
+
+    rotation = parameters[
+        "rotation"
+    ]
+
+    stroke = parameters[
+        "stroke"
+    ]
+
+    cx = 600
+    cy = 395
+
+    elements = []
+
+
+    # -----------------------------------------------------
+    # MONOGRAM
+    # -----------------------------------------------------
+
+    if logo_type in [
+        "monogram",
+        "lettermark",
+    ]:
+
+        text = html.escape(
+            initials(
+                business_name
+            )
+        )
+
+        if shape in [
+            "circle",
+            "rings",
+        ]:
+
+            elements.append(
+                f"""
+                <circle
+                    cx="{cx}"
+                    cy="{cy}"
+                    r="190"
+                    fill="none"
+                    stroke="{primary}"
+                    stroke-width="{stroke}"
+                />
+                """
+            )
+
+        else:
+
+            sides = {
+                "triangle": 3,
+                "square": 4,
+                "diamond": 4,
+                "hexagon": 6,
+            }.get(
+                shape,
+                6,
+            )
+
+            points = polygon_points(
+                cx,
+                cy,
+                190,
+                sides,
+                rotation,
+            )
+
+            elements.append(
+                f"""
+                <polygon
+                    points="{svg_points(points)}"
+                    fill="none"
+                    stroke="{primary}"
+                    stroke-width="{stroke}"
+                    stroke-linejoin="round"
+                />
+                """
+            )
+
+        elements.append(
+            f"""
+            <text
+                x="{cx}"
+                y="{cy + 45}"
+                text-anchor="middle"
+                font-family="Arial, sans-serif"
+                font-size="145"
+                font-weight="700"
+                fill="{accent}"
+            >{text}</text>
+            """
+        )
+
+
+    # -----------------------------------------------------
+    # ABSTRACT
+    # -----------------------------------------------------
+
+    elif logo_type in [
+        "abstract",
+        "combination",
+    ]:
+
+        layers = parameters[
+            "layers"
+        ]
+
+        colors = [
+            primary,
+            secondary,
+            accent,
+        ]
+
+        for index in range(
+            layers
+        ):
+
+            radius = (
+                190
+                - index * 30
+            )
+
+            sides = [
+                3,
+                4,
+                5,
+                6,
+            ][
+                index % 4
+            ]
+
+            x = (
+                cx
+                + (
+                    index
+                    - layers / 2
+                )
+                * parameters[
+                    "offset"
+                ]
+                * 0.45
+            )
+
+            points = polygon_points(
+                x,
+                cy,
+                radius,
+                sides,
+                rotation
+                + index
+                * parameters[
+                    "secondary_rotation"
+                ],
+            )
+
+            color = colors[
+                index % 3
+            ]
+
+            opacity = (
+                0.92
+                - index * 0.10
+            )
+
+            elements.append(
+                f"""
+                <polygon
+                    points="{svg_points(points)}"
+                    fill="{color}"
+                    fill-opacity="{max(0.35, opacity)}"
+                />
+                """
+            )
+
+
+    # -----------------------------------------------------
+    # NEGATIVE SPACE
+    # -----------------------------------------------------
+
+    elif logo_type == "negative-space":
+
+        points = polygon_points(
+            cx,
+            cy,
+            215,
+            6,
+            rotation,
+        )
+
+        cutout = polygon_points(
+            cx + 25,
+            cy,
+            110,
+            3,
+            rotation + 30,
+        )
+
+        elements.append(
+            f"""
+            <polygon
+                points="{svg_points(points)}"
+                fill="{primary}"
+            />
+            """
+        )
+
+        elements.append(
+            f"""
+            <polygon
+                points="{svg_points(cutout)}"
+                fill="{BACKGROUND}"
+            />
+            """
+        )
+
+        elements.append(
+            f"""
+            <circle
+                cx="{cx}"
+                cy="{cy}"
+                r="34"
+                fill="{accent}"
+            />
+            """
+        )
+
+
+    # -----------------------------------------------------
+    # EMBLEM
+    # -----------------------------------------------------
+
+    elif logo_type == "emblem":
+
+        text = html.escape(
+            initials(
+                business_name
+            )
+        )
+
+        elements.append(
+            f"""
+            <circle
+                cx="{cx}"
+                cy="{cy}"
+                r="220"
+                fill="{primary}"
+            />
+
+            <circle
+                cx="{cx}"
+                cy="{cy}"
+                r="170"
+                fill="none"
+                stroke="{accent}"
+                stroke-width="{stroke}"
+            />
+
+            <text
+                x="{cx}"
+                y="{cy + 42}"
+                text-anchor="middle"
+                font-family="Arial, sans-serif"
+                font-size="130"
+                font-weight="700"
+                fill="#FFFFFF"
+            >{text}</text>
+            """
+        )
+
+
+    # -----------------------------------------------------
+    # GEOMETRIC
+    # -----------------------------------------------------
+
+    else:
+
+        outer = polygon_points(
+            cx,
+            cy,
+            215,
+            random.choice(
+                [
+                    4,
+                    5,
+                    6,
+                ]
+            ),
+            rotation,
+        )
+
+        inner = polygon_points(
+            cx,
+            cy,
+            120,
+            random.choice(
+                [
+                    3,
+                    4,
+                    6,
+                ]
+            ),
+            rotation
+            + parameters[
+                "secondary_rotation"
+            ],
+        )
+
+        elements.append(
+            f"""
+            <polygon
+                points="{svg_points(outer)}"
+                fill="none"
+                stroke="{primary}"
+                stroke-width="{stroke}"
+                stroke-linejoin="round"
+            />
+
+            <polygon
+                points="{svg_points(inner)}"
+                fill="{secondary}"
+            />
+
+            <circle
+                cx="{cx}"
+                cy="{cy}"
+                r="32"
+                fill="{accent}"
+            />
+            """
+        )
+
+
+    return "\n".join(
+        elements
+    )
+
+
+# =========================================================
+# COMPLETE SVG
+# =========================================================
+
+def render_svg(
+    business_name,
+    industry,
+    specification,
+    parameters,
+):
+
+    symbol = render_svg_symbol(
+        specification,
+        business_name,
+        parameters,
+    )
+
+    safe_name = html.escape(
+        business_name
+        .strip()
+        .upper()
+    )
+
+    safe_industry = html.escape(
+        industry
+        .replace(
+            "_",
+            " "
+        )
+        .replace(
+            "-",
+            " "
+        )
+        .upper()
+    )
+
+    primary = specification[
+        "primary_color"
+    ]
+
+    secondary = specification[
+        "secondary_color"
+    ]
+
+    return f"""
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="{WIDTH}"
+    height="{HEIGHT}"
+    viewBox="0 0 {WIDTH} {HEIGHT}"
+>
+    <rect
+        width="{WIDTH}"
+        height="{HEIGHT}"
+        fill="{BACKGROUND}"
+    />
+
+    {symbol}
+
+    <text
+        x="600"
+        y="770"
+        text-anchor="middle"
+        font-family="Arial, sans-serif"
+        font-size="82"
+        font-weight="700"
+        fill="{primary}"
+    >{safe_name}</text>
+
+    <rect
+        x="530"
+        y="825"
+        width="140"
+        height="8"
+        rx="4"
+        fill="{secondary}"
+    />
+
+    <text
+        x="600"
+        y="895"
+        text-anchor="middle"
+        font-family="Arial, sans-serif"
+        font-size="28"
+        letter-spacing="4"
+        fill="{secondary}"
+    >{safe_industry}</text>
+</svg>
+""".strip()
+
+
+# =========================================================
+# PNG SYMBOL
+# =========================================================
+
+def render_png_symbol(
+    draw,
+    specification,
+    business_name,
+    parameters,
+):
+
+    logo_type = specification[
+        "logo_type"
+    ]
+
+    primary = specification[
+        "primary_color"
+    ]
+
+    secondary = specification[
+        "secondary_color"
+    ]
+
+    accent = specification[
+        "accent_color"
+    ]
+
+    rotation = parameters[
+        "rotation"
+    ]
+
+    stroke = parameters[
+        "stroke"
+    ]
+
+    cx = 600
+    cy = 395
+
+
+    if logo_type in [
+        "monogram",
+        "lettermark",
+    ]:
+
+        points = polygon_points(
+            cx,
+            cy,
+            190,
+            random.choice(
+                [
+                    4,
+                    5,
+                    6,
+                ]
+            ),
+            rotation,
+        )
+
+        draw.line(
+            points
+            + [points[0]],
+            fill=primary,
+            width=stroke,
+            joint="curve",
+        )
+
+        font = get_font(
+            140,
+            specification[
+                "font_style"
+            ],
+        )
+
+        draw_centered_text(
+            draw,
+            initials(
+                business_name
+            ),
+            cx,
+            cy - 85,
+            font,
+            accent,
+        )
+
+
+    elif logo_type in [
+        "abstract",
+        "combination",
+    ]:
+
+        colors = [
+            primary,
+            secondary,
+            accent,
+        ]
+
+        for index in range(
+            parameters[
+                "layers"
+            ]
+        ):
+
+            points = polygon_points(
+                cx
+                + (
+                    index
+                    - 1
+                )
+                * 30,
+                cy,
+                190
+                - index * 30,
+                [
+                    3,
+                    4,
+                    5,
+                    6,
+                ][
+                    index % 4
+                ],
+                rotation
+                + index * 35,
+            )
+
+            draw.polygon(
+                points,
+                fill=colors[
+                    index % 3
+                ],
+            )
+
+
+    elif logo_type == "negative-space":
+
+        outer = polygon_points(
+            cx,
+            cy,
+            215,
+            6,
+            rotation,
+        )
+
+        draw.polygon(
+            outer,
+            fill=primary,
+        )
+
+        cut = polygon_points(
+            cx + 25,
+            cy,
+            110,
+            3,
+            rotation + 30,
+        )
+
+        draw.polygon(
+            cut,
+            fill=BACKGROUND,
+        )
+
+        draw.ellipse(
+            (
+                cx - 34,
+                cy - 34,
+                cx + 34,
+                cy + 34,
+            ),
+            fill=accent,
+        )
+
+
+    elif logo_type == "emblem":
+
+        draw.ellipse(
+            (
+                cx - 220,
+                cy - 220,
+                cx + 220,
+                cy + 220,
+            ),
+            fill=primary,
+        )
+
+        draw.ellipse(
+            (
+                cx - 170,
+                cy - 170,
+                cx + 170,
+                cy + 170,
+            ),
+            outline=accent,
+            width=stroke,
+        )
+
+        font = get_font(
+            125,
+            "bold",
+        )
+
+        draw_centered_text(
+            draw,
+            initials(
+                business_name
+            ),
+            cx,
+            cy - 75,
+            font,
+            "#FFFFFF",
+        )
+
+
+    else:
+
+        outer = polygon_points(
+            cx,
+            cy,
+            215,
+            6,
+            rotation,
+        )
+
+        draw.line(
+            outer
+            + [outer[0]],
+            fill=primary,
+            width=stroke,
+            joint="curve",
+        )
+
+        inner = polygon_points(
+            cx,
+            cy,
+            115,
+            3,
+            rotation + 35,
+        )
+
+        draw.polygon(
+            inner,
+            fill=secondary,
+        )
+
+        draw.ellipse(
+            (
+                cx - 32,
+                cy - 32,
+                cx + 32,
+                cy + 32,
+            ),
+            fill=accent,
+        )
+
+
+# =========================================================
+# COMPLETE PNG
+# =========================================================
+
+def render_png(
+    business_name,
+    industry,
+    specification,
+    parameters,
+):
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        BACKGROUND,
+    )
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+    render_png_symbol(
+        draw,
+        specification,
+        business_name,
+        parameters,
+    )
+
+    name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+    if len(name) <= 10:
+        size = 86
+
+    elif len(name) <= 16:
+        size = 70
+
+    elif len(name) <= 22:
+        size = 56
+
+    else:
+        size = 44
+
+    name_font = get_font(
+        size,
+        specification[
+            "font_style"
+        ],
+    )
+
+    draw_centered_text(
+        draw,
+        name,
+        600,
+        720,
+        name_font,
+        specification[
+            "primary_color"
+        ],
+    )
+
+    draw.rounded_rectangle(
+        (
+            530,
+            825,
+            670,
+            833,
+        ),
+        radius=4,
+        fill=specification[
+            "secondary_color"
+        ],
+    )
+
+    industry_text = (
+        industry
+        .replace(
+            "_",
+            " "
+        )
+        .replace(
+            "-",
+            " "
+        )
+        .upper()
+    )
+
+    industry_font = get_font(
+        27,
+        "minimal",
+    )
+
+    draw_centered_text(
+        draw,
+        industry_text,
+        600,
+        860,
+        industry_font,
+        specification[
+            "secondary_color"
+        ],
+    )
+
+    output = BytesIO()
+
+    image.save(
+        output,
+        format="PNG",
+        optimize=True,
+    )
+
+    output.seek(0)
+
+    return output.getvalue()
+
+
+# =========================================================
+# PUBLIC FUNCTION
+# =========================================================
+
+def render_logo(
+    business_name,
+    industry,
+    specification,
+):
+
+    parameters = build_parameters(
+        specification
+    )
+
+    svg = render_svg(
+        business_name,
+        industry,
+        specification,
+        parameters,
+    )
+
+    png = render_png(
+        business_name,
+        industry,
+        specification,
+        parameters,
+    )
+
+    return {
+        "svg": svg,
+        "png": png,
+        "parameters": parameters,
+    }
+
+============================================================
+FILE: backend\app\services\svg_logo_designer.py
+============================================================
+
+
+============================================================
+FILE: backend\app\services\flux_provider.py
+============================================================
+
+import random
+from urllib.parse import quote
+
+import requests
+
+
+POLLINATIONS_URL = "https://image.pollinations.ai/prompt"
+
+
+# =========================================================
+# SHARED REQUEST
+# =========================================================
+
+def _request_flux_image(
+    prompt: str,
+) -> bytes:
+
+    seed = random.randint(
+        1,
+        2_000_000_000,
+    )
+
+    url = (
+        f"{POLLINATIONS_URL}/"
+        f"{quote(prompt, safe='')}"
+    )
+
+    params = {
+        "width": 1024,
+        "height": 1024,
+        "seed": seed,
+        "model": "flux",
+        "enhance": "true",
+        "nologo": "true",
+    }
+
+    response = requests.get(
+        url,
+        params=params,
+        timeout=180,
+    )
+
+    response.raise_for_status()
+
+    content_type = (
+        response.headers.get(
+            "content-type",
+            "",
+        ).lower()
+    )
+
+    if not content_type.startswith(
+        "image/"
+    ):
+        raise RuntimeError(
+            "FLUX provider did not return an image."
+        )
+
+    if len(response.content) < 1000:
+        raise RuntimeError(
+            "FLUX provider returned invalid image data."
+        )
+
+    return response.content
+
+
+# =========================================================
+# LOGO SYMBOL
+# =========================================================
+
+def generate_flux_symbol(
+    specification: dict,
+    industry: str,
+    style: str,
+) -> bytes:
+    """
+    Generate an isolated brand symbol.
+
+    Typography should be added later by the deterministic
+    logo renderer rather than generated by the image model.
+    """
+
+    concept = specification.get(
+        "concept",
+        "distinctive professional brand symbol",
+    )
+
+    logo_type = specification.get(
+        "logo_type",
+        "abstract",
+    )
+
+    shape = specification.get(
+        "shape",
+        "geometric",
+    )
+
+    primary = specification.get(
+        "primary_color",
+        "#111827",
+    )
+
+    secondary = specification.get(
+        "secondary_color",
+        "#4F46E5",
+    )
+
+    accent = specification.get(
+        "accent_color",
+        "#06B6D4",
+    )
+
+    prompt = (
+        f"premium professional brand identity symbol "
+        f"for the {industry} industry, "
+        f"{concept}, "
+        f"{style} aesthetic, "
+        f"{logo_type} logo concept, "
+        f"{shape} inspired geometry, "
+        f"color palette {primary}, {secondary}, {accent}, "
+        "single isolated symbol, "
+        "minimal vector aesthetic, "
+        "strong silhouette, "
+        "balanced negative space, "
+        "precise clean geometry, "
+        "flat solid colors, "
+        "centered on pure white background, "
+        "no company name, "
+        "no letters, "
+        "no words, "
+        "no typography, "
+        "no mockup, "
+        "no photograph, "
+        "no 3d render"
+    )
+
+    return _request_flux_image(
+        prompt
+    )
+
+
+# =========================================================
+# CAMPAIGN / MARKETING IMAGE
+# =========================================================
+
+def generate_flux_campaign(
+    specification: dict,
+    industry: str,
+    style: str,
+) -> bytes:
+    """
+    Generate a polished brand campaign image.
+
+    This intentionally generates visual artwork rather than
+    logos or typography.
+    """
+
+    concept = specification.get(
+        "concept",
+        "premium brand campaign",
+    )
+
+    primary = specification.get(
+        "primary_color",
+        "#111827",
+    )
+
+    secondary = specification.get(
+        "secondary_color",
+        "#4F46E5",
+    )
+
+    accent = specification.get(
+        "accent_color",
+        "#06B6D4",
+    )
+
+    prompt = (
+        f"{concept}, "
+        f"professional advertising campaign for the "
+        f"{industry} industry, "
+        f"{style} visual direction, "
+        f"brand color palette {primary}, "
+        f"{secondary}, {accent}, "
+        "premium commercial art direction, "
+        "high-end advertising photography, "
+        "strong visual hierarchy, "
+        "intentional composition, "
+        "professional studio lighting, "
+        "modern brand aesthetic, "
+        "social media campaign quality, "
+        "website hero image quality, "
+        "clean composition, "
+        "space available for marketing copy, "
+        "no text, "
+        "no letters, "
+        "no words, "
+        "no watermark, "
+        "no logo"
+    )
+
+    return _request_flux_image(
+        prompt
+    )
+
+============================================================
+FILE: backend\app\services\pollinations_provider.py
+============================================================
+
+import random
+from urllib.parse import quote
+
+import requests
+
+
+POLLINATIONS_URL = (
+    "https://image.pollinations.ai/prompt"
+)
+
+
+def generate_creative_logo_symbol(
+    concept: str,
+    style: str,
+) -> bytes:
+    """
+    Generate a creative logo symbol using Pollinations.
+
+    This function deliberately asks for a symbol only.
+    Company typography is NOT generated here.
+    """
+
+    seed = random.randint(
+        1,
+        2_000_000_000,
+    )
+
+    prompt = (
+        "professional corporate vector logo symbol, "
+        f"{concept}, "
+        f"{style} visual identity, "
+        "single isolated brand mark, "
+        "simple memorable geometry, "
+        "clean flat vector design, "
+        "strong negative space, "
+        "two or three solid colors, "
+        "centered composition, "
+        "plain white background, "
+        "professional branding agency quality"
+    )
+
+    encoded_prompt = quote(
+        prompt,
+        safe="",
+    )
+
+    url = (
+        f"{POLLINATIONS_URL}/"
+        f"{encoded_prompt}"
+    )
+
+    params = {
+        "width": 1024,
+        "height": 1024,
+        "seed": seed,
+        "model": "flux",
+        "enhance": "false",
+        "nologo": "true",
+    }
+
+    print("")
+    print(
+        "================================="
+    )
+    print(
+        "POLLINATIONS CREATIVE CONCEPT"
+    )
+    print(
+        "================================="
+    )
+    print(
+        "Seed:",
+        seed,
+    )
+    print(
+        "Concept:",
+        concept,
+    )
+
+    try:
+
+        response = requests.get(
+            url,
+            params=params,
+            timeout=120,
+        )
+
+        response.raise_for_status()
+
+        content_type = (
+            response.headers.get(
+                "content-type",
+                "",
+            )
+            .lower()
+        )
+
+        if not content_type.startswith(
+            "image/"
+        ):
+
+            raise RuntimeError(
+                "Pollinations did not return an image."
+            )
+
+        if len(
+            response.content
+        ) < 1000:
+
+            raise RuntimeError(
+                "Returned image was invalid."
+            )
+
+        print(
+            "Creative image generated successfully."
+        )
+
+        return response.content
+
+    except Exception as error:
+
+        print(
+            "Pollinations generation failed:",
+            repr(error),
+        )
+
+        raise
+
+============================================================
+FILE: backend\app\services\replicate_provider.py
+============================================================
+
+import os
+import time
+
+import requests
+
+
+REPLICATE_API_URL = "https://api.replicate.com/v1"
+
+
+# =========================================================
+# PROMPT BUILDERS
+# =========================================================
+
+def _build_symbol_prompt(
+    specification: dict,
+    industry: str,
+    style: str,
+) -> str:
+
+    concept = specification.get(
+        "concept",
+        "distinctive professional brand symbol",
+    )
+
+    logo_type = specification.get(
+        "logo_type",
+        "abstract",
+    )
+
+    shape = specification.get(
+        "shape",
+        "geometric",
+    )
+
+    primary = specification.get(
+        "primary_color",
+        "#111827",
+    )
+
+    secondary = specification.get(
+        "secondary_color",
+        "#4F46E5",
+    )
+
+    accent = specification.get(
+        "accent_color",
+        "#06B6D4",
+    )
+
+
+    return (
+        f"premium professional brand identity symbol "
+        f"for the {industry} industry, "
+        f"{concept}, "
+        f"{style} aesthetic, "
+        f"{logo_type} logo concept, "
+        f"{shape} inspired geometry, "
+        f"color palette {primary}, {secondary}, {accent}, "
+        "single isolated symbol, "
+        "minimal vector aesthetic, "
+        "strong silhouette, "
+        "balanced negative space, "
+        "precise clean geometry, "
+        "flat solid colors, "
+        "centered on pure white background, "
+        "no company name, "
+        "no letters, "
+        "no words, "
+        "no typography, "
+        "no mockup, "
+        "no photograph, "
+        "no 3d render"
+    )
+
+
+def _build_campaign_prompt(
+    specification: dict,
+    industry: str,
+    style: str,
+) -> str:
+
+    concept = specification.get(
+        "concept",
+        "premium brand campaign",
+    )
+
+    primary = specification.get(
+        "primary_color",
+        "#111827",
+    )
+
+    secondary = specification.get(
+        "secondary_color",
+        "#4F46E5",
+    )
+
+    accent = specification.get(
+        "accent_color",
+        "#06B6D4",
+    )
+
+
+    return (
+        f"{concept}, "
+        f"professional advertising campaign "
+        f"for the {industry} industry, "
+        f"{style} visual direction, "
+        f"brand color palette "
+        f"{primary}, {secondary}, {accent}, "
+        "premium commercial art direction, "
+        "high-end advertising photography, "
+        "intentional composition, "
+        "strong visual hierarchy, "
+        "professional lighting, "
+        "modern brand aesthetic, "
+        "social media campaign quality, "
+        "website hero image quality, "
+        "clean composition, "
+        "space available for marketing copy, "
+        "no text, "
+        "no letters, "
+        "no words, "
+        "no watermark, "
+        "no logo"
+    )
+
+
+def _build_prompt(
+    specification: dict,
+    industry: str,
+    style: str,
+    purpose: str,
+) -> str:
+
+    purpose = purpose.lower()
+
+
+    if purpose == "campaign":
+
+        return _build_campaign_prompt(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
+
+
+    if purpose == "symbol":
+
+        return _build_symbol_prompt(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
+
+
+    raise ValueError(
+        f"Unknown image purpose: {purpose}"
+    )
+
+
+# =========================================================
+# REPLICATE IMAGE GENERATION
+# =========================================================
+
+def generate_replicate_image(
+    specification: dict,
+    industry: str,
+    style: str,
+    purpose: str = "campaign",
+) -> bytes:
+
+    token = os.getenv(
+        "REPLICATE_API_TOKEN"
+    )
+
+
+    if not token:
+
+        raise RuntimeError(
+            "REPLICATE_API_TOKEN is not configured."
+        )
+
+
+    model = os.getenv(
+        "REPLICATE_IMAGE_MODEL"
+    )
+
+
+    if not model:
+
+        raise RuntimeError(
+            "REPLICATE_IMAGE_MODEL is not configured."
+        )
+
+
+    prompt = _build_prompt(
+        specification=specification,
+        industry=industry,
+        style=style,
+        purpose=purpose,
+    )
+
+
+    headers = {
+        "Authorization":
+        f"Bearer {token}",
+
+        "Content-Type":
+        "application/json",
+
+        "Prefer":
+        "wait=60",
+    }
+
+
+    response = requests.post(
+        (
+            f"{REPLICATE_API_URL}/"
+            f"models/{model}/predictions"
+        ),
+
+        headers=headers,
+
+        json={
+            "input": {
+                "prompt":
+                prompt,
+            }
+        },
+
+        timeout=90,
+    )
+
+
+    response.raise_for_status()
+
+    prediction = (
+        response.json()
+    )
+
+
+    # -----------------------------------------------------
+    # POLL UNTIL COMPLETE
+    # -----------------------------------------------------
+
+    while prediction.get(
+        "status"
+    ) not in {
+        "succeeded",
+        "failed",
+        "canceled",
+    }:
+
+        poll_url = (
+            prediction.get(
+                "urls",
+                {},
+            )
+            .get(
+                "get"
+            )
+        )
+
+
+        if not poll_url:
+
+            raise RuntimeError(
+                "Replicate did not provide "
+                "a prediction polling URL."
+            )
+
+
+        time.sleep(
+            2
+        )
+
+
+        response = requests.get(
+            poll_url,
+
+            headers={
+                "Authorization":
+                f"Bearer {token}",
+            },
+
+            timeout=30,
+        )
+
+
+        response.raise_for_status()
+
+============================================================
+FILE: backend\app\services\video_generator.py
+============================================================
+
+import uuid
+from pathlib import Path
+
+import numpy as np
+
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+)
+
+from moviepy import (
+    ImageClip,
+    concatenate_videoclips,
+)
+
+
+# =========================================================
+# VIDEO SETTINGS
+# =========================================================
+
+WIDTH = 1080
+HEIGHT = 1080
+FPS = 30
+
+
+# =========================================================
+# FONT LOADER
+# =========================================================
+
+def get_font(
+    size: int,
+    bold: bool = False,
+):
+
+    if bold:
+
+        paths = [
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+
+    else:
+
+        paths = [
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+
+
+    for path in paths:
+
+        try:
+
+            return ImageFont.truetype(
+                path,
+                size,
+            )
+
+        except OSError:
+
+            continue
+
+
+    return ImageFont.load_default()
+
+
+# =========================================================
+# HEX -> RGB
+# =========================================================
+
+def hex_to_rgb(
+    value: str,
+    fallback=(15, 23, 42),
+):
+
+    try:
+
+        value = (
+            value
+            .strip()
+            .lstrip("#")
+        )
+
+
+        if len(value) != 6:
+
+            return fallback
+
+
+        return tuple(
+            int(
+                value[index:index + 2],
+                16,
+            )
+
+            for index
+            in (
+                0,
+                2,
+                4,
+            )
+        )
+
+
+    except Exception:
+
+        return fallback
+
+
+# =========================================================
+# CONTRAST COLOR
+# =========================================================
+
+def text_color_for(
+    rgb,
+):
+
+    red, green, blue = rgb
+
+
+    luminance = (
+        0.299 * red
+        + 0.587 * green
+        + 0.114 * blue
+    )
+
+
+    if luminance > 165:
+
+        return (
+            15,
+            23,
+            42,
+        )
+
+
+    return (
+        255,
+        255,
+        255,
+    )
+
+
+# =========================================================
+# TEXT HELPERS
+# =========================================================
+
+def text_width(
+    draw,
+    text,
+    font,
+):
+
+    bbox = draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+    )
+
+
+    return (
+        bbox[2]
+        - bbox[0]
+    )
+
+
+def draw_centered_text(
+    draw,
+    text,
+    y,
+    font,
+    fill,
+):
+
+    width = text_width(
+        draw,
+        text,
+        font,
+    )
+
+
+    x = (
+        WIDTH - width
+    ) / 2
+
+
+    draw.text(
+        (
+            x,
+            y,
+        ),
+        text,
+        font=font,
+        fill=fill,
+    )
+
+
+def wrap_text(
+    draw,
+    text,
+    font,
+    max_width,
+):
+
+    words = (
+        str(text or "")
+        .split()
+    )
+
+
+    lines = []
+
+    current_line = ""
+
+
+    for word in words:
+
+        test_line = (
+            f"{current_line} {word}"
+            .strip()
+        )
+
+
+        width = text_width(
+            draw,
+            test_line,
+            font,
+        )
+
+
+        if width <= max_width:
+
+            current_line = (
+                test_line
+            )
+
+
+        else:
+
+            if current_line:
+
+                lines.append(
+                    current_line
+                )
+
+
+            current_line = word
+
+
+    if current_line:
+
+        lines.append(
+            current_line
+        )
+
+
+    return lines
+
+
+def draw_wrapped_center(
+    draw,
+    text,
+    y,
+    font,
+    fill,
+    max_width=850,
+    line_height=65,
+):
+
+    lines = wrap_text(
+        draw,
+        text,
+        font,
+        max_width,
+    )
+
+
+    for line in lines:
+
+        draw_centered_text(
+            draw,
+            line,
+            y,
+            font,
+            fill,
+        )
+
+
+        y += line_height
+
+
+# =========================================================
+# LOGO LOADER
+# =========================================================
+
+def load_logo(
+    logo_path: Path,
+    max_size=500,
+):
+
+    logo = (
+        Image.open(
+            logo_path
+        )
+        .convert(
+            "RGBA"
+        )
+    )
+
+
+    logo.thumbnail(
+        (
+            max_size,
+            max_size,
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+
+    return logo
+
+
+# =========================================================
+# LOGO POSITIONING
+# =========================================================
+
+def paste_logo(
+    image,
+    logo,
+    center_y,
+):
+
+    x = (
+        WIDTH
+        - logo.width
+    ) // 2
+
+
+    y = (
+        center_y
+        - logo.height // 2
+    )
+
+
+    image.paste(
+        logo,
+        (
+            x,
+            y,
+        ),
+        logo,
+    )
+
+
+# =========================================================
+# SCENE 1
+# LOGO REVEAL
+# =========================================================
+
+def scene_logo(
+    logo,
+    primary,
+):
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        (
+            255,
+            255,
+            255,
+        ),
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            WIDTH // 2 - 60,
+            110,
+            WIDTH // 2 + 60,
+            120,
+        ),
+        radius=5,
+        fill=primary,
+    )
+
+
+    paste_logo(
+        image,
+        logo,
+        HEIGHT // 2,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 2
+# COMPANY + SLOGAN
+# =========================================================
+
+def scene_slogan(
+    business_name,
+    slogan,
+    primary,
+    secondary,
+):
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        primary,
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    foreground = (
+        text_color_for(
+            primary
+        )
+    )
+
+
+    company_font = get_font(
+        74,
+        True,
+    )
+
+
+    slogan_font = get_font(
+        38,
+        False,
+    )
+
+
+    company_name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+
+    # Smaller company-name font
+    # if the name is very long.
+    if len(company_name) > 18:
+
+        company_font = get_font(
+            54,
+            True,
+        )
+
+
+    draw_centered_text(
+        draw,
+        company_name,
+        350,
+        company_font,
+        foreground,
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            WIDTH // 2 - 80,
+            465,
+            WIDTH // 2 + 80,
+            475,
+        ),
+        radius=5,
+        fill=secondary,
+    )
+
+
+    draw_wrapped_center(
+        draw,
+        slogan,
+        535,
+        slogan_font,
+        foreground,
+        max_width=800,
+        line_height=55,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 3
+# BRAND PERSONALITY
+# =========================================================
+
+def scene_personality(
+    personality,
+    secondary,
+):
+
+    background = (
+        15,
+        23,
+        42,
+    )
+
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        background,
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    heading_font = get_font(
+        24,
+        True,
+    )
+
+
+    personality_font = get_font(
+        48,
+        True,
+    )
+
+
+    draw_centered_text(
+        draw,
+        "OUR BRAND",
+        300,
+        heading_font,
+        secondary,
+    )
+
+
+    if personality:
+
+        text = (
+            "  •  ".join(
+                personality
+            )
+            .upper()
+        )
+
+
+    else:
+
+        text = (
+            "MODERN • PROFESSIONAL • RELIABLE"
+        )
+
+
+    draw_wrapped_center(
+        draw,
+        text,
+        410,
+        personality_font,
+        (
+            255,
+            255,
+            255,
+        ),
+        max_width=880,
+        line_height=70,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 4
+# MARKETING MESSAGE
+# =========================================================
+
+def scene_marketing(
+    marketing_message,
+    accent,
+):
+
+    background = (
+        248,
+        250,
+        252,
+    )
+
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        background,
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    heading_font = get_font(
+        24,
+        True,
+    )
+
+
+    message_font = get_font(
+        43,
+        True,
+    )
+
+
+    draw_centered_text(
+        draw,
+        "OUR MESSAGE",
+        275,
+        heading_font,
+        accent,
+    )
+
+
+    draw_wrapped_center(
+        draw,
+        marketing_message,
+        380,
+        message_font,
+        (
+            15,
+            23,
+            42,
+        ),
+        max_width=850,
+        line_height=62,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 5
+# FINAL BRAND
+# =========================================================
+
+def scene_outro(
+    logo,
+    business_name,
+    primary,
+):
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        (
+            255,
+            255,
+            255,
+        ),
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    small_logo = (
+        logo.copy()
+    )
+
+
+    small_logo.thumbnail(
+        (
+            340,
+            340,
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+
+    paste_logo(
+        image,
+        small_logo,
+        390,
+    )
+
+
+    company_font = get_font(
+        55,
+        True,
+    )
+
+
+    company_name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+
+    if len(company_name) > 18:
+
+        company_font = get_font(
+            43,
+            True,
+        )
+
+
+    draw_centered_text(
+        draw,
+        company_name,
+        650,
+        company_font,
+        primary,
+    )
+
+
+    tagline_font = get_font(
+        24,
+        False,
+    )
+
+
+    draw_centered_text(
+        draw,
+        "Discover the brand.",
+        735,
+        tagline_font,
+        (
+            100,
+            116,
+            139,
+        ),
+    )
+
+
+    return image
+
+
+# =========================================================
+# CREATE MOVIEPY CLIP
+# MoviePy 2.x uses with_duration()
+# =========================================================
+
+def create_clip(
+    image,
+    duration,
+):
+
+    array = np.array(
+        image
+    )
+
+
+    clip = ImageClip(
+        array
+    )
+
+
+    clip = clip.with_duration(
+        duration
+    )
+
+
+    return clip
+
+
+# =========================================================
+# MAIN VIDEO GENERATOR
+# =========================================================
+
+def generate_promotional_video(
+    logo_path: Path,
+    output_directory: Path,
+    business_name: str = "Your Brand",
+    slogan: str = "",
+    personality=None,
+    marketing_message: str = "",
+    primary_color: str = "#4F46E5",
+    secondary_color: str = "#7C3AED",
+    accent_color: str = "#06B6D4",
+):
+
+    if personality is None:
+
+        personality = [
+            "Modern",
+            "Professional",
+            "Reliable",
+        ]
+
+
+    if not slogan:
+
+        slogan = (
+            "Built for what comes next."
+        )
+
+
+    if not marketing_message:
+
+        marketing_message = (
+            "A modern brand built around "
+            "quality, trust and customer value."
+        )
+
+
+    output_directory = Path(
+        output_directory
+    )
+
+
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+
+    primary = hex_to_rgb(
+        primary_color
+    )
+
+
+    secondary = hex_to_rgb(
+        secondary_color,
+        (
+            124,
+            58,
+            237,
+        ),
+    )
+
+
+    accent = hex_to_rgb(
+        accent_color,
+        (
+            6,
+            182,
+            212,
+        ),
+    )
+
+
+    logo = load_logo(
+        Path(
+            logo_path
+        ),
+        max_size=500,
+    )
+
+
+    # =====================================================
+    # GENERATE SCENES
+    # =====================================================
+
+    image1 = scene_logo(
+        logo,
+        primary,
+    )
+
+
+    image2 = scene_slogan(
+        business_name,
+        slogan,
+        primary,
+        secondary,
+    )
+
+
+    image3 = scene_personality(
+        personality,
+        secondary,
+    )
+
+
+    image4 = scene_marketing(
+        marketing_message,
+        accent,
+    )
+
+
+    image5 = scene_outro(
+        logo,
+        business_name,
+        primary,
+    )
+
+
+    # =====================================================
+    # CLIPS
+    # =====================================================
+
+    clips = [
+        create_clip(
+            image1,
+            2.0,
+        ),
+
+        create_clip(
+            image2,
+            3.0,
+        ),
+
+        create_clip(
+            image3,
+            3.0,
+        ),
+
+        create_clip(
+            image4,
+            3.0,
+        ),
+
+        create_clip(
+            image5,
+            2.0,
+        ),
+    ]
+
+
+    # =====================================================
+    # COMBINE
+    # =====================================================
+
+    final_video = (
+        concatenate_videoclips(
+            clips,
+            method="compose",
+        )
+    )
+
+
+    filename = (
+        f"promo-"
+        f"{uuid.uuid4()}.mp4"
+    )
+
+
+    output_path = (
+        output_directory
+        / filename
+    )
+
+
+    # =====================================================
+    # EXPORT
+    # =====================================================
+
+    try:
+
+        final_video.write_videofile(
+            str(
+                output_path
+            ),
+            fps=FPS,
+            codec="libx264",
+            audio=False,
+            preset="medium",
+            ffmpeg_params=[
+                "-pix_fmt",
+                "yuv420p",
+            ],
+            logger=None,
+        )
+
+
+    finally:
+
+        final_video.close()
+
+
+        for clip in clips:
+
+            try:
+                clip.close()
+
+            except Exception:
+                pass
+
+
+    return output_path
+
+============================================================
+FILE: backend\app\services\video_generator_v2.py
+============================================================
+
+import uuid
+from pathlib import Path
+
+import numpy as np
+
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+    ImageFilter,
+)
+
+from moviepy import (
+    ImageClip,
+    VideoClip,
+    concatenate_videoclips,
+)
+
+
+# =========================================================
+# SETTINGS
+# =========================================================
+
+WIDTH = 1080
+HEIGHT = 1080
+FPS = 30
+
+
+# =========================================================
+# FONT LOADER
+# =========================================================
+
+def get_font(
+    size: int,
+    bold: bool = False,
+):
+
+    if bold:
+
+        paths = [
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+
+    else:
+
+        paths = [
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+
+
+    for path in paths:
+
+        try:
+
+            return ImageFont.truetype(
+                path,
+                size,
+            )
+
+        except OSError:
+
+            continue
+
+
+    return ImageFont.load_default()
+
+
+# =========================================================
+# COLOR
+# =========================================================
+
+def hex_to_rgb(
+    value,
+    fallback=(15, 23, 42),
+):
+
+    try:
+
+        value = (
+            value
+            .strip()
+            .lstrip("#")
+        )
+
+
+        if len(value) != 6:
+
+            return fallback
+
+
+        return tuple(
+            int(
+                value[index:index + 2],
+                16,
+            )
+
+            for index in (
+                0,
+                2,
+                4,
+            )
+        )
+
+
+    except Exception:
+
+        return fallback
+
+
+def mix(
+    color_a,
+    color_b,
+    amount,
+):
+
+    return tuple(
+        int(
+            color_a[index]
+            * (1 - amount)
+            + color_b[index]
+            * amount
+        )
+
+        for index in range(3)
+    )
+
+
+def contrast_color(
+    color,
+):
+
+    luminance = (
+        0.299 * color[0]
+        + 0.587 * color[1]
+        + 0.114 * color[2]
+    )
+
+
+    if luminance > 165:
+
+        return (
+            15,
+            23,
+            42,
+        )
+
+
+    return (
+        255,
+        255,
+        255,
+    )
+
+
+# =========================================================
+# TEXT
+# =========================================================
+
+def text_width(
+    draw,
+    text,
+    font,
+):
+
+    box = draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+    )
+
+
+    return (
+        box[2]
+        - box[0]
+    )
+
+
+def draw_centered(
+    draw,
+    text,
+    y,
+    font,
+    fill,
+):
+
+    width = text_width(
+        draw,
+        text,
+        font,
+    )
+
+
+    draw.text(
+        (
+            (WIDTH - width) / 2,
+            y,
+        ),
+        text,
+        font=font,
+        fill=fill,
+    )
+
+
+def wrap_text(
+    draw,
+    text,
+    font,
+    max_width,
+):
+
+    words = (
+        str(
+            text or ""
+        )
+        .split()
+    )
+
+
+    lines = []
+
+    current = ""
+
+
+    for word in words:
+
+        candidate = (
+            f"{current} {word}"
+            .strip()
+        )
+
+
+        if (
+            text_width(
+                draw,
+                candidate,
+                font,
+            )
+            <= max_width
+        ):
+
+            current = candidate
+
+
+        else:
+
+            if current:
+
+                lines.append(
+                    current
+                )
+
+
+            current = word
+
+
+    if current:
+
+        lines.append(
+            current
+        )
+
+
+    return lines
+
+
+def draw_wrapped(
+    draw,
+    text,
+    y,
+    font,
+    fill,
+    max_width=780,
+    line_height=65,
+):
+
+    lines = wrap_text(
+        draw,
+        text,
+        font,
+        max_width,
+    )
+
+
+    for line in lines:
+
+        draw_centered(
+            draw,
+            line,
+            y,
+            font,
+            fill,
+        )
+
+
+        y += line_height
+
+
+# =========================================================
+# BACKGROUND
+# =========================================================
+
+def gradient_background(
+    start,
+    end,
+):
+
+    image = Image.new(
+        "RGB",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+    )
+
+
+    pixels = image.load()
+
+
+    for y in range(
+        HEIGHT
+    ):
+
+        amount = (
+            y
+            / max(
+                1,
+                HEIGHT - 1,
+            )
+        )
+
+
+        color = mix(
+            start,
+            end,
+            amount,
+        )
+
+
+        for x in range(
+            WIDTH
+        ):
+
+            pixels[
+                x,
+                y,
+            ] = color
+
+
+    return image
+
+
+# =========================================================
+# DECORATIVE BRAND ELEMENTS
+# =========================================================
+
+def add_brand_shapes(
+    image,
+    primary,
+    secondary,
+    accent,
+):
+
+    overlay = Image.new(
+        "RGBA",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        (
+            0,
+            0,
+            0,
+            0,
+        ),
+    )
+
+
+    draw = ImageDraw.Draw(
+        overlay
+    )
+
+
+    draw.ellipse(
+        (
+            -170,
+            -120,
+            340,
+            390,
+        ),
+        fill=(
+            secondary[0],
+            secondary[1],
+            secondary[2],
+            45,
+        ),
+    )
+
+
+    draw.ellipse(
+        (
+            780,
+            720,
+            1250,
+            1190,
+        ),
+        fill=(
+            accent[0],
+            accent[1],
+            accent[2],
+            50,
+        ),
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            830,
+            80,
+            1000,
+            95,
+        ),
+        radius=8,
+        fill=(
+            accent[0],
+            accent[1],
+            accent[2],
+            160,
+        ),
+    )
+
+
+    overlay = (
+        overlay.filter(
+            ImageFilter.GaussianBlur(
+                5
+            )
+        )
+    )
+
+
+    return Image.alpha_composite(
+        image.convert(
+            "RGBA"
+        ),
+        overlay,
+    ).convert(
+        "RGB"
+    )
+
+
+# =========================================================
+# LOGO
+# =========================================================
+
+def load_logo(
+    logo_path,
+):
+
+    logo = (
+        Image.open(
+            logo_path
+        )
+        .convert(
+            "RGBA"
+        )
+    )
+
+
+    logo.thumbnail(
+        (
+            420,
+            420,
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+
+    return logo
+
+
+def paste_logo(
+    image,
+    logo,
+    center_y,
+):
+
+    x = (
+        WIDTH
+        - logo.width
+    ) // 2
+
+
+    y = (
+        center_y
+        - logo.height // 2
+    )
+
+
+    image.paste(
+        logo,
+        (
+            x,
+            y,
+        ),
+        logo,
+    )
+
+
+# =========================================================
+# SCENE 1 — BRAND REVEAL
+# =========================================================
+
+def create_intro_scene(
+    logo,
+    primary,
+    secondary,
+    accent,
+):
+
+    dark = mix(
+        primary,
+        (
+            3,
+            7,
+            18,
+        ),
+        0.55,
+    )
+
+
+    image = gradient_background(
+        dark,
+        primary,
+    )
+
+
+    image = add_brand_shapes(
+        image,
+        primary,
+        secondary,
+        accent,
+    )
+
+
+    paste_logo(
+        image,
+        logo,
+        500,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 2 — BRAND STATEMENT
+# =========================================================
+
+def create_statement_scene(
+    business_name,
+    slogan,
+    primary,
+    secondary,
+    accent,
+):
+
+    dark = mix(
+        primary,
+        (
+            3,
+            7,
+            18,
+        ),
+        0.4,
+    )
+
+
+    image = gradient_background(
+        primary,
+        dark,
+    )
+
+
+    image = add_brand_shapes(
+        image,
+        primary,
+        secondary,
+        accent,
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    foreground = contrast_color(
+        dark
+    )
+
+
+    small = get_font(
+        25,
+        False,
+    )
+
+
+    title = get_font(
+        (
+            70
+            if len(
+                business_name
+            ) <= 18
+            else 52
+        ),
+        True,
+    )
+
+
+    slogan_font = get_font(
+        38,
+        False,
+    )
+
+
+    draw_centered(
+        draw,
+        "INTRODUCING",
+        275,
+        small,
+        accent,
+    )
+
+
+    draw_centered(
+        draw,
+        business_name.upper(),
+        360,
+        title,
+        foreground,
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            450,
+            475,
+            630,
+            483,
+        ),
+        radius=4,
+        fill=accent,
+    )
+
+
+    draw_wrapped(
+        draw,
+        slogan,
+        550,
+        slogan_font,
+        foreground,
+        max_width=780,
+        line_height=55,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 3 — PERSONALITY
+# =========================================================
+
+def create_personality_scene(
+    personality,
+    primary,
+    secondary,
+    accent,
+):
+
+    image = gradient_background(
+        (
+            248,
+            250,
+            252,
+        ),
+        (
+            232,
+            238,
+            247,
+        ),
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    label_font = get_font(
+        24,
+        True,
+    )
+
+
+    main_font = get_font(
+        52,
+        True,
+    )
+
+
+    draw_centered(
+        draw,
+        "BRAND CHARACTER",
+        245,
+        label_font,
+        secondary,
+    )
+
+
+    words = (
+        personality[:3]
+        if personality
+        else [
+            "Modern",
+            "Professional",
+            "Reliable",
+        ]
+    )
+
+
+    y = 365
+
+
+    colors = [
+        primary,
+        secondary,
+        accent,
+    ]
+
+
+    for index, word in enumerate(
+        words
+    ):
+
+        draw_centered(
+            draw,
+            str(
+                word
+            ).upper(),
+            y,
+            main_font,
+            colors[
+                index
+                % len(colors)
+            ],
+        )
+
+
+        y += 120
+
+
+    return image
+
+
+# =========================================================
+# SCENE 4 — MARKETING MESSAGE
+# =========================================================
+
+def create_message_scene(
+    marketing_message,
+    primary,
+    secondary,
+    accent,
+):
+
+    dark = (
+        8,
+        15,
+        30,
+    )
+
+
+    image = gradient_background(
+        dark,
+        mix(
+            primary,
+            dark,
+            0.55,
+        ),
+    )
+
+
+    image = add_brand_shapes(
+        image,
+        primary,
+        secondary,
+        accent,
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    label = get_font(
+        23,
+        True,
+    )
+
+
+    message = get_font(
+        45,
+        True,
+    )
+
+
+    draw_centered(
+        draw,
+        "OUR PURPOSE",
+        270,
+        label,
+        accent,
+    )
+
+
+    draw_wrapped(
+        draw,
+        marketing_message,
+        390,
+        message,
+        (
+            255,
+            255,
+            255,
+        ),
+        max_width=820,
+        line_height=67,
+    )
+
+
+    return image
+
+
+# =========================================================
+# SCENE 5 — OUTRO
+# =========================================================
+
+def create_outro_scene(
+    logo,
+    business_name,
+    primary,
+    secondary,
+    accent,
+):
+
+    image = gradient_background(
+        (
+            255,
+            255,
+            255,
+        ),
+        (
+            240,
+            244,
+            250,
+        ),
+    )
+
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+
+    small_logo = (
+        logo.copy()
+    )
+
+
+    small_logo.thumbnail(
+        (
+            320,
+            320,
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+
+    paste_logo(
+        image,
+        small_logo,
+        380,
+    )
+
+
+    name_font = get_font(
+        (
+            55
+            if len(
+                business_name
+            ) <= 18
+            else 43
+        ),
+        True,
+    )
+
+
+    draw_centered(
+        draw,
+        business_name.upper(),
+        610,
+        name_font,
+        primary,
+    )
+
+
+    draw.rounded_rectangle(
+        (
+            485,
+            710,
+            595,
+            718,
+        ),
+        radius=4,
+        fill=accent,
+    )
+
+
+    tagline = get_font(
+        27,
+        False,
+    )
+
+
+    draw_centered(
+        draw,
+        "BUILT FOR WHAT COMES NEXT.",
+        770,
+        tagline,
+        (
+            71,
+            85,
+            105,
+        ),
+    )
+
+
+    return image
+
+
+# =========================================================
+# MOTION
+# =========================================================
+
+def animated_image_clip(
+    pil_image,
+    duration,
+    zoom_start=1.0,
+    zoom_end=1.04,
+):
+
+    base = (
+        pil_image
+        .convert(
+            "RGB"
+        )
+    )
+
+
+    def frame_function(t):
+
+        progress = (
+            t
+            / duration
+            if duration
+            else 0
+        )
+
+
+        scale = (
+            zoom_start
+            + (
+                zoom_end
+                - zoom_start
+            )
+            * progress
+        )
+
+
+        new_width = int(
+            WIDTH * scale
+        )
+
+
+        new_height = int(
+            HEIGHT * scale
+        )
+
+
+        frame = base.resize(
+            (
+                new_width,
+                new_height,
+            ),
+            Image.Resampling.LANCZOS,
+        )
+
+
+        left = (
+            new_width
+            - WIDTH
+        ) // 2
+
+
+        top = (
+            new_height
+            - HEIGHT
+        ) // 2
+
+
+        frame = frame.crop(
+            (
+                left,
+                top,
+                left + WIDTH,
+                top + HEIGHT,
+            )
+        )
+
+
+        return np.array(
+            frame
+        )
+
+
+    return (
+        VideoClip(
+            frame_function,
+            duration=duration,
+        )
+    )
+
+
+# =========================================================
+# MAIN VIDEO GENERATOR V2
+# =========================================================
+
+def generate_promotional_video_v2(
+    logo_path: Path,
+    output_directory: Path,
+    business_name: str = "Your Brand",
+    slogan: str = "",
+    personality=None,
+    marketing_message: str = "",
+    primary_color: str = "#4F46E5",
+    secondary_color: str = "#7C3AED",
+    accent_color: str = "#06B6D4",
+):
+
+    if personality is None:
+
+        personality = [
+            "Modern",
+            "Professional",
+            "Reliable",
+        ]
+
+
+    if not slogan:
+
+        slogan = (
+            "Built for what comes next."
+        )
+
+
+    if not marketing_message:
+
+        marketing_message = (
+            "A modern brand built around "
+            "quality, trust and customer value."
+        )
+
+
+    output_directory = Path(
+        output_directory
+    )
+
+
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+
+    primary = hex_to_rgb(
+        primary_color
+    )
+
+
+    secondary = hex_to_rgb(
+        secondary_color,
+        (
+            124,
+            58,
+            237,
+        ),
+    )
+
+
+    accent = hex_to_rgb(
+        accent_color,
+        (
+            6,
+            182,
+            212,
+        ),
+    )
+
+
+    logo = load_logo(
+        Path(
+            logo_path
+        )
+    )
+
+
+    # -----------------------------------------------------
+    # BUILD SCENES
+    # -----------------------------------------------------
+
+    scenes = [
+
+        (
+            create_intro_scene(
+                logo,
+                primary,
+                secondary,
+                accent,
+            ),
+            2.5,
+            1.00,
+            1.06,
+        ),
+
+        (
+            create_statement_scene(
+                business_name,
+                slogan,
+                primary,
+                secondary,
+                accent,
+            ),
+            3.0,
+            1.03,
+            1.00,
+        ),
+
+        (
+            create_personality_scene(
+                personality,
+                primary,
+                secondary,
+                accent,
+            ),
+            3.0,
+            1.00,
+            1.035,
+        ),
+
+        (
+            create_message_scene(
+                marketing_message,
+                primary,
+                secondary,
+                accent,
+            ),
+            3.5,
+            1.035,
+            1.00,
+        ),
+
+        (
+            create_outro_scene(
+                logo,
+                business_name,
+                primary,
+                secondary,
+                accent,
+            ),
+            2.5,
+            1.00,
+            1.04,
+        ),
+    ]
+
+
+    clips = []
+
+
+    for (
+        image,
+        duration,
+        zoom_start,
+        zoom_end,
+    ) in scenes:
+
+        clip = animated_image_clip(
+            image,
+            duration,
+            zoom_start,
+            zoom_end,
+        )
+
+
+        clips.append(
+            clip
+        )
+
+
+    final_video = (
+        concatenate_videoclips(
+            clips,
+            method="compose",
+        )
+    )
+
+
+    filename = (
+        f"promo-v2-"
+        f"{uuid.uuid4()}.mp4"
+    )
+
+
+    output_path = (
+        output_directory
+        / filename
+    )
+
+
+    try:
+
+        final_video.write_videofile(
+            str(
+                output_path
+            ),
+
+            fps=FPS,
+
+            codec="libx264",
+
+            audio=False,
+
+            preset="medium",
+
+            ffmpeg_params=[
+                "-pix_fmt",
+                "yuv420p",
+
+                # Good quality without making
+                # the file unnecessarily huge.
+                "-crf",
+                "18",
+            ],
+
+            logger=None,
+        )
+
+
+    finally:
+
+        final_video.close()
+
+
+        for clip in clips:
+
+            try:
+                clip.close()
+
+            except Exception:
+                pass
+
+
+    return output_path
+
+============================================================
+FILE: backend\app\services\video_provider.py
+============================================================
+
+import os
+from pathlib import Path
+
+from .video_generator_v2 import (
+    generate_promotional_video_v2,
+)
+
+
+# =========================================================
+# PROVIDER CONFIG
+# =========================================================
+
+DEFAULT_PROVIDER = os.getenv(
+    "VIDEO_PROVIDER",
+    "local",
+).lower()
+
+
+# =========================================================
+# LOCAL PROVIDER
+# =========================================================
+
+def generate_local_video(
+    **kwargs,
+):
+
+    print(
+        "VIDEO PROVIDER: local MoviePy V2"
+    )
+
+    return generate_promotional_video_v2(
+        **kwargs
+    )
+
+
+# =========================================================
+# WAN PROVIDER
+# =========================================================
+
+def generate_wan_video(
+    **kwargs,
+):
+
+    # We will implement this when GPU/API access
+    # is configured.
+
+    raise RuntimeError(
+        "Wan video provider is not configured."
+    )
+
+
+# =========================================================
+# LTX PROVIDER
+# =========================================================
+
+def generate_ltx_video(
+    **kwargs,
+):
+
+    # We will implement this when GPU/API access
+    # is configured.
+
+    raise RuntimeError(
+        "LTX video provider is not configured."
+    )
+
+
+# =========================================================
+# MAIN ROUTER
+# =========================================================
+
+def generate_video(
+    provider: str | None = None,
+    **kwargs,
+) -> Path:
+
+    selected = (
+        provider
+        or DEFAULT_PROVIDER
+    ).lower()
+
+
+    # -----------------------------------------------------
+    # EXPLICIT LOCAL
+    # -----------------------------------------------------
+
+    if selected == "local":
+
+        return generate_local_video(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # EXPLICIT WAN
+    # -----------------------------------------------------
+
+    if selected == "wan":
+
+        return generate_wan_video(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # EXPLICIT LTX
+    # -----------------------------------------------------
+
+    if selected == "ltx":
+
+        return generate_ltx_video(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # AUTO MODE
+    # -----------------------------------------------------
+
+    if selected == "auto":
+
+        providers = [
+            (
+                "wan",
+                generate_wan_video,
+            ),
+
+            (
+                "ltx",
+                generate_ltx_video,
+            ),
+        ]
+
+
+        for name, generator in providers:
+
+            try:
+
+                print(
+                    f"Trying video provider: {name}"
+                )
+
+
+                return generator(
+                    **kwargs
+                )
+
+
+            except Exception as error:
+
+                print(
+                    f"{name} unavailable:",
+                    repr(error),
+                )
+
+
+        print(
+            "AI video providers unavailable. "
+            "Falling back to local MoviePy V2."
+        )
+
+
+        return generate_local_video(
+            **kwargs
+        )
+
+
+    # -----------------------------------------------------
+    # INVALID PROVIDER
+    # -----------------------------------------------------
+
+    raise ValueError(
+        f"Unknown video provider: {selected}"
+    )

@@ -1,14 +1,20 @@
 import os
 import time
+from typing import Any
 
 import requests
 
 
 REPLICATE_API_URL = "https://api.replicate.com/v1"
 
+REQUEST_TIMEOUT = 90
+DOWNLOAD_TIMEOUT = 90
+POLL_INTERVAL = 2
+MAX_WAIT_SECONDS = 180
+
 
 # =========================================================
-# PROMPT BUILDERS
+# SYMBOL PROMPT
 # =========================================================
 
 def _build_symbol_prompt(
@@ -47,31 +53,45 @@ def _build_symbol_prompt(
         "#06B6D4",
     )
 
-
     return (
-        f"premium professional brand identity symbol "
-        f"for the {industry} industry, "
-        f"{concept}, "
-        f"{style} aesthetic, "
-        f"{logo_type} logo concept, "
-        f"{shape} inspired geometry, "
-        f"color palette {primary}, {secondary}, {accent}, "
-        "single isolated symbol, "
-        "minimal vector aesthetic, "
-        "strong silhouette, "
-        "balanced negative space, "
-        "precise clean geometry, "
-        "flat solid colors, "
-        "centered on pure white background, "
-        "no company name, "
-        "no letters, "
-        "no words, "
-        "no typography, "
-        "no mockup, "
-        "no photograph, "
-        "no 3d render"
+        "Professional vector logo symbol. "
+        f"Industry: {industry}. "
+        f"Creative direction: {concept}. "
+        f"Brand style: {style}. "
+        f"Logo approach: {logo_type}. "
+        f"Geometry inspiration: {shape}. "
+        f"Preferred palette: "
+        f"{primary}, {secondary}, {accent}. "
+
+        "Create one original, memorable, "
+        "minimal brand mark with a strong silhouette. "
+        "Use deliberate negative space and "
+        "clean geometric construction. "
+        "The mark must remain recognizable at small size. "
+        "Flat vector design. "
+        "Centered composition. "
+        "Pure white background. "
+        "Crisp edges. "
+        "Professional branding agency quality. "
+
+        "Do not include text. "
+        "Do not include letters. "
+        "Do not include words. "
+        "Do not include a company name. "
+        "Do not include typography. "
+        "Do not include a watermark. "
+        "Do not include a signature. "
+        "Do not include a mockup. "
+        "Do not include stationery. "
+        "Do not include a wall. "
+        "Do not include a photograph. "
+        "Do not include 3D rendering."
     )
 
+
+# =========================================================
+# CAMPAIGN PROMPT
+# =========================================================
 
 def _build_campaign_prompt(
     specification: dict,
@@ -81,7 +101,7 @@ def _build_campaign_prompt(
 
     concept = specification.get(
         "concept",
-        "premium brand campaign",
+        "premium professional brand campaign",
     )
 
     primary = specification.get(
@@ -99,31 +119,37 @@ def _build_campaign_prompt(
         "#06B6D4",
     )
 
-
     return (
-        f"{concept}, "
-        f"professional advertising campaign "
-        f"for the {industry} industry, "
-        f"{style} visual direction, "
-        f"brand color palette "
-        f"{primary}, {secondary}, {accent}, "
-        "premium commercial art direction, "
-        "high-end advertising photography, "
-        "intentional composition, "
-        "strong visual hierarchy, "
-        "professional lighting, "
-        "modern brand aesthetic, "
-        "social media campaign quality, "
-        "website hero image quality, "
-        "clean composition, "
-        "space available for marketing copy, "
-        "no text, "
-        "no letters, "
-        "no words, "
-        "no watermark, "
-        "no logo"
+        f"{concept}. "
+        f"Professional advertising campaign for "
+        f"the {industry} industry. "
+        f"{style} visual direction. "
+
+        f"Brand color inspiration: "
+        f"{primary}, {secondary}, {accent}. "
+
+        "Premium commercial art direction. "
+        "High-end advertising quality. "
+        "Intentional composition. "
+        "Strong visual hierarchy. "
+        "Professional lighting. "
+        "Modern brand aesthetic. "
+        "Website hero image quality. "
+        "Social media campaign quality. "
+        "Leave intentional negative space "
+        "for marketing copy. "
+
+        "No visible text. "
+        "No letters. "
+        "No words. "
+        "No watermark. "
+        "No logo."
     )
 
+
+# =========================================================
+# PROMPT ROUTER
+# =========================================================
 
 def _build_prompt(
     specification: dict,
@@ -132,17 +158,11 @@ def _build_prompt(
     purpose: str,
 ) -> str:
 
-    purpose = purpose.lower()
-
-
-    if purpose == "campaign":
-
-        return _build_campaign_prompt(
-            specification=specification,
-            industry=industry,
-            style=style,
-        )
-
+    purpose = (
+        purpose
+        .strip()
+        .lower()
+    )
 
     if purpose == "symbol":
 
@@ -152,6 +172,13 @@ def _build_prompt(
             style=style,
         )
 
+    if purpose == "campaign":
+
+        return _build_campaign_prompt(
+            specification=specification,
+            industry=industry,
+            style=style,
+        )
 
     raise ValueError(
         f"Unknown image purpose: {purpose}"
@@ -159,7 +186,158 @@ def _build_prompt(
 
 
 # =========================================================
-# REPLICATE IMAGE GENERATION
+# EXTRACT OUTPUT URL
+# =========================================================
+
+def _extract_output_url(
+    output: Any,
+) -> str:
+
+    # Replicate models can return:
+    #
+    # "https://..."
+    #
+    # or:
+    #
+    # ["https://..."]
+    #
+    # or sometimes structured objects.
+
+    if isinstance(
+        output,
+        str,
+    ):
+
+        return output
+
+
+    if isinstance(
+        output,
+        list,
+    ):
+
+        for item in output:
+
+            if isinstance(
+                item,
+                str,
+            ):
+
+                return item
+
+
+            if isinstance(
+                item,
+                dict,
+            ):
+
+                for key in (
+                    "url",
+                    "image",
+                    "output",
+                ):
+
+                    value = (
+                        item.get(key)
+                    )
+
+                    if isinstance(
+                        value,
+                        str,
+                    ):
+
+                        return value
+
+
+    if isinstance(
+        output,
+        dict,
+    ):
+
+        for key in (
+            "url",
+            "image",
+            "output",
+        ):
+
+            value = (
+                output.get(key)
+            )
+
+            if isinstance(
+                value,
+                str,
+            ):
+
+                return value
+
+
+            if isinstance(
+                value,
+                list,
+            ):
+
+                for item in value:
+
+                    if isinstance(
+                        item,
+                        str,
+                    ):
+
+                        return item
+
+
+    raise RuntimeError(
+        "Replicate completed but did not "
+        "return a usable image URL."
+    )
+
+
+# =========================================================
+# DOWNLOAD IMAGE
+# =========================================================
+
+def _download_image(
+    url: str,
+) -> bytes:
+
+    response = requests.get(
+        url,
+        timeout=DOWNLOAD_TIMEOUT,
+    )
+
+    response.raise_for_status()
+
+    image_bytes = (
+        response.content
+    )
+
+
+    if not isinstance(
+        image_bytes,
+        (bytes, bytearray),
+    ):
+
+        raise RuntimeError(
+            "Replicate returned invalid image data."
+        )
+
+
+    if len(image_bytes) < 1000:
+
+        raise RuntimeError(
+            "Downloaded Replicate image "
+            "is too small or invalid."
+        )
+
+
+    return bytes(
+        image_bytes
+    )
+
+
+# =========================================================
+# REPLICATE GENERATOR
 # =========================================================
 
 def generate_replicate_image(
@@ -169,90 +347,256 @@ def generate_replicate_image(
     purpose: str = "campaign",
 ) -> bytes:
 
-    token = os.getenv(
-        "REPLICATE_API_TOKEN"
+    # =====================================================
+    # ENVIRONMENT
+    # =====================================================
+
+    token = (
+        os.getenv(
+            "REPLICATE_API_TOKEN",
+            "",
+        )
+        .strip()
     )
 
 
     if not token:
 
         raise RuntimeError(
-            "REPLICATE_API_TOKEN is not configured."
+            "REPLICATE_API_TOKEN "
+            "is not configured."
         )
 
 
-    model = os.getenv(
-        "REPLICATE_IMAGE_MODEL"
+    model = (
+        os.getenv(
+            "REPLICATE_IMAGE_MODEL",
+            "",
+        )
+        .strip()
     )
 
 
     if not model:
 
         raise RuntimeError(
-            "REPLICATE_IMAGE_MODEL is not configured."
+            "REPLICATE_IMAGE_MODEL "
+            "is not configured."
         )
 
 
-    prompt = _build_prompt(
-        specification=specification,
-        industry=industry,
-        style=style,
-        purpose=purpose,
+    # Remove accidental whitespace/slashes.
+
+    model = (
+        model
+        .strip("/")
     )
 
+
+    # =====================================================
+    # PROMPT
+    # =====================================================
+
+    prompt = (
+        _build_prompt(
+            specification=(
+                specification
+            ),
+
+            industry=(
+                industry
+            ),
+
+            style=(
+                style
+            ),
+
+            purpose=(
+                purpose
+            ),
+        )
+    )
+
+
+    print(
+        f"[REPLICATE] Purpose: {purpose}"
+    )
+
+    print(
+        f"[REPLICATE] Model: {model}"
+    )
+
+
+    # =====================================================
+    # HEADERS
+    # =====================================================
 
     headers = {
         "Authorization":
-        f"Bearer {token}",
+            f"Bearer {token}",
 
         "Content-Type":
-        "application/json",
+            "application/json",
 
         "Prefer":
-        "wait=60",
+            "wait=60",
     }
 
 
-    response = requests.post(
-        (
-            f"{REPLICATE_API_URL}/"
-            f"models/{model}/predictions"
-        ),
+    # =====================================================
+    # CREATE PREDICTION
+    # =====================================================
 
-        headers=headers,
-
-        json={
-            "input": {
-                "prompt":
-                prompt,
-            }
-        },
-
-        timeout=90,
+    endpoint = (
+        f"{REPLICATE_API_URL}"
+        f"/models/{model}/predictions"
     )
 
 
-    response.raise_for_status()
+    try:
+
+        response = (
+            requests.post(
+                endpoint,
+
+                headers=(
+                    headers
+                ),
+
+                json={
+                    "input": {
+                        "prompt":
+                            prompt,
+                    }
+                },
+
+                timeout=(
+                    REQUEST_TIMEOUT
+                ),
+            )
+        )
+
+
+        response.raise_for_status()
+
+
+    except requests.RequestException as error:
+
+        body = ""
+
+        if (
+            getattr(
+                error,
+                "response",
+                None
+            )
+            is not None
+        ):
+
+            try:
+
+                body = (
+                    error.response.text
+                )
+
+            except Exception:
+
+                body = ""
+
+
+        raise RuntimeError(
+            "Replicate prediction request "
+            f"failed: {error}. "
+            f"{body[:500]}"
+        ) from error
+
 
     prediction = (
         response.json()
     )
 
 
-    # -----------------------------------------------------
-    # POLL UNTIL COMPLETE
-    # -----------------------------------------------------
+    # =====================================================
+    # WAIT FOR RESULT
+    # =====================================================
 
-    while prediction.get(
-        "status"
-    ) not in {
-        "succeeded",
-        "failed",
-        "canceled",
-    }:
+    started = (
+        time.monotonic()
+    )
+
+
+    while True:
+
+        status = (
+            prediction.get(
+                "status",
+                ""
+            )
+        )
+
+
+        print(
+            f"[REPLICATE] Status: {status}"
+        )
+
+
+        # -------------------------------------------------
+        # SUCCESS
+        # -------------------------------------------------
+
+        if status == "succeeded":
+
+            break
+
+
+        # -------------------------------------------------
+        # FAILURE
+        # -------------------------------------------------
+
+        if status in {
+            "failed",
+            "canceled",
+        }:
+
+            message = (
+                prediction.get(
+                    "error"
+                )
+                or "Unknown Replicate error."
+            )
+
+
+            raise RuntimeError(
+                "Replicate generation "
+                f"{status}: {message}"
+            )
+
+
+        # -------------------------------------------------
+        # TIMEOUT
+        # -------------------------------------------------
+
+        elapsed = (
+            time.monotonic()
+            - started
+        )
+
+
+        if elapsed > MAX_WAIT_SECONDS:
+
+            raise RuntimeError(
+                "Replicate generation timed out "
+                f"after {MAX_WAIT_SECONDS} seconds."
+            )
+
+
+        # -------------------------------------------------
+        # POLL URL
+        # -------------------------------------------------
 
         poll_url = (
-            prediction.get(
+            prediction
+            .get(
                 "urls",
                 {},
             )
@@ -271,20 +615,76 @@ def generate_replicate_image(
 
 
         time.sleep(
-            2
+            POLL_INTERVAL
         )
 
 
-        response = requests.get(
-            poll_url,
+        try:
 
-            headers={
-                "Authorization":
-                f"Bearer {token}",
-            },
+            response = (
+                requests.get(
+                    poll_url,
 
-            timeout=30,
+                    headers={
+                        "Authorization":
+                            f"Bearer {token}",
+                    },
+
+                    timeout=30,
+                )
+            )
+
+
+            response.raise_for_status()
+
+
+            # THIS WAS MISSING IN YOUR FILE.
+            prediction = (
+                response.json()
+            )
+
+
+        except requests.RequestException as error:
+
+            raise RuntimeError(
+                "Could not poll Replicate "
+                f"prediction: {error}"
+            ) from error
+
+
+    # =====================================================
+    # DOWNLOAD RESULT
+    # =====================================================
+
+    output = (
+        prediction.get(
+            "output"
         )
+    )
 
 
-        response.raise_for_status()
+    output_url = (
+        _extract_output_url(
+            output
+        )
+    )
+
+
+    print(
+        "[REPLICATE] Downloading generated image..."
+    )
+
+
+    image_bytes = (
+        _download_image(
+            output_url
+        )
+    )
+
+
+    print(
+        "[REPLICATE] Image generation complete."
+    )
+
+
+    return image_bytes
