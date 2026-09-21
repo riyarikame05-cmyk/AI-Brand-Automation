@@ -4,10 +4,10 @@ from .flux_provider import (
     generate_flux_campaign,
     generate_flux_symbol,
 )
-
 from .replicate_provider import (
     generate_replicate_image,
 )
+from .logo_renderer import render_logo
 
 
 # =========================================================
@@ -25,7 +25,7 @@ DEFAULT_PROVIDER = (
 
 
 # =========================================================
-# VALIDATE RESULT
+# VALIDATION
 # =========================================================
 
 def _validate_image(
@@ -37,24 +37,18 @@ def _validate_image(
         image_bytes,
         (bytes, bytearray),
     ):
-
         raise RuntimeError(
             f"{provider_name} returned "
             "non-binary image data."
         )
 
-
     if len(image_bytes) < 1000:
-
         raise RuntimeError(
             f"{provider_name} returned "
             "invalid image data."
         )
 
-
-    return bytes(
-        image_bytes
-    )
+    return bytes(image_bytes)
 
 
 # =========================================================
@@ -63,45 +57,92 @@ def _validate_image(
 
 def generate_local_image(
     **kwargs,
-):
+) -> bytes:
+    """
+    Fully local logo fallback.
 
-    raise RuntimeError(
-        "Local image provider "
-        "has not been configured."
+    The specification is normally produced by Ollama.
+    logo_renderer then creates the actual PNG.
+
+    No cloud API is required.
+    """
+
+    purpose = (
+        kwargs.get(
+            "purpose",
+            "symbol",
+        )
+        .strip()
+        .lower()
+    )
+
+    if purpose != "symbol":
+        raise RuntimeError(
+            "Local provider currently supports "
+            "logo symbols only."
+        )
+
+    specification = kwargs.get(
+        "specification",
+        {},
+    )
+
+    business_name = kwargs.get(
+        "business_name",
+        "Brand",
+    )
+
+    industry = kwargs.get(
+        "industry",
+        "Business",
+    )
+
+    if not specification:
+        raise RuntimeError(
+            "Logo specification is required "
+            "for local rendering."
+        )
+
+    print(
+        "[IMAGE] Rendering logo locally."
+    )
+
+    result = render_logo(
+        business_name=business_name,
+        industry=industry,
+        specification=specification,
+    )
+
+    png = result.get("png")
+
+    return _validate_image(
+        png,
+        "local",
     )
 
 
 # =========================================================
-# FLUX PROVIDER
+# FLUX
 # =========================================================
 
 def generate_flux_image(
     **kwargs,
-):
+) -> bytes:
 
-    specification = (
-        kwargs.get(
-            "specification",
-            {},
-        )
+    specification = kwargs.get(
+        "specification",
+        {},
     )
 
-
-    industry = (
-        kwargs.get(
-            "industry",
-            "",
-        )
+    industry = kwargs.get(
+        "industry",
+        "",
     )
 
-
-    style = (
-        kwargs.get(
-            "style",
-            "",
-        )
+    style = kwargs.get(
+        "style",
+        "",
     )
-
 
     purpose = (
         kwargs.get(
@@ -112,81 +153,56 @@ def generate_flux_image(
         .lower()
     )
 
-
     if purpose == "campaign":
 
-        return (
-            generate_flux_campaign(
-                specification=(
-                    specification
-                ),
-
-                industry=(
-                    industry
-                ),
-
-                style=(
-                    style
-                ),
-            )
+        result = generate_flux_campaign(
+            specification=specification,
+            industry=industry,
+            style=style,
         )
 
+    elif purpose == "symbol":
 
-    if purpose == "symbol":
-
-        return (
-            generate_flux_symbol(
-                specification=(
-                    specification
-                ),
-
-                industry=(
-                    industry
-                ),
-
-                style=(
-                    style
-                ),
-            )
+        result = generate_flux_symbol(
+            specification=specification,
+            industry=industry,
+            style=style,
         )
 
+    else:
 
-    raise ValueError(
-        f"Unknown image purpose: {purpose}"
+        raise ValueError(
+            f"Unknown image purpose: {purpose}"
+        )
+
+    return _validate_image(
+        result,
+        "flux",
     )
 
 
 # =========================================================
-# REPLICATE PROVIDER
+# REPLICATE
 # =========================================================
 
 def generate_replicate_provider_image(
     **kwargs,
-):
+) -> bytes:
 
-    specification = (
-        kwargs.get(
-            "specification",
-            {},
-        )
+    specification = kwargs.get(
+        "specification",
+        {},
     )
 
-
-    industry = (
-        kwargs.get(
-            "industry",
-            "",
-        )
+    industry = kwargs.get(
+        "industry",
+        "",
     )
 
-
-    style = (
-        kwargs.get(
-            "style",
-            "",
-        )
+    style = kwargs.get(
+        "style",
+        "",
     )
-
 
     purpose = (
         kwargs.get(
@@ -197,77 +213,54 @@ def generate_replicate_provider_image(
         .lower()
     )
 
+    result = generate_replicate_image(
+        specification=specification,
+        industry=industry,
+        style=style,
+        purpose=purpose,
+    )
 
-    # IMPORTANT:
-    # Purpose is now forwarded correctly.
-    #
-    # Previously this was missing, which caused
-    # symbol generation to use campaign prompts.
-
-    return (
-        generate_replicate_image(
-            specification=(
-                specification
-            ),
-
-            industry=(
-                industry
-            ),
-
-            style=(
-                style
-            ),
-
-            purpose=(
-                purpose
-            ),
-        )
+    return _validate_image(
+        result,
+        "replicate",
     )
 
 
 # =========================================================
-# STUDENT PROVIDER
+# CONFIGURATION CHECKS
 # =========================================================
 
-def generate_student_image(
-    **kwargs,
-):
+def _replicate_configured() -> bool:
 
-    raise RuntimeError(
-        "Student image provider "
-        "is not configured."
-    )
-
-
-# =========================================================
-# PROVIDER AVAILABILITY
-# =========================================================
-
-def _replicate_configured():
-
-    return bool(
+    token = (
         os.getenv(
             "REPLICATE_API_TOKEN",
-            ""
-        ).strip()
+            "",
+        )
+        .strip()
+    )
 
-        and
-
+    model = (
         os.getenv(
             "REPLICATE_IMAGE_MODEL",
-            ""
-        ).strip()
+            "",
+        )
+        .strip()
+    )
+
+    return bool(
+        token and model
     )
 
 
 # =========================================================
-# MAIN ROUTER
+# ROUTER
 # =========================================================
 
 def generate_image(
     provider=None,
     **kwargs,
-):
+) -> bytes:
 
     selected = (
         provider
@@ -275,212 +268,159 @@ def generate_image(
         or "auto"
     )
 
-
     selected = (
         selected
         .strip()
         .lower()
     )
 
+    # -----------------------------------------------------
+    # LOCAL
+    # -----------------------------------------------------
 
-    # =====================================================
+    if selected == "local":
+
+        return generate_local_image(
+            **kwargs
+        )
+
+    # -----------------------------------------------------
+    # FLUX
+    # -----------------------------------------------------
+
+    if selected == "flux":
+
+        return generate_flux_image(
+            **kwargs
+        )
+
+    # -----------------------------------------------------
     # REPLICATE
-    # =====================================================
+    # -----------------------------------------------------
 
     if selected == "replicate":
 
         return (
-            _validate_image(
-                generate_replicate_provider_image(
-                    **kwargs
-                ),
-
-                "replicate",
+            generate_replicate_provider_image(
+                **kwargs
             )
         )
 
-
-    # =====================================================
-    # FLUX
-    # =====================================================
-
-    if selected == "flux":
-
-        return (
-            _validate_image(
-                generate_flux_image(
-                    **kwargs
-                ),
-
-                "flux",
-            )
-        )
-
-
-    # =====================================================
-    # LOCAL
-    # =====================================================
-
-    if selected == "local":
-
-        return (
-            _validate_image(
-                generate_local_image(
-                    **kwargs
-                ),
-
-                "local",
-            )
-        )
-
-
-    # =====================================================
-    # STUDENT
-    # =====================================================
-
-    if selected == "student":
-
-        return (
-            _validate_image(
-                generate_student_image(
-                    **kwargs
-                ),
-
-                "student",
-            )
-        )
-
-
-    # =====================================================
+    # -----------------------------------------------------
     # AUTO
-    # =====================================================
+    # -----------------------------------------------------
 
     if selected == "auto":
 
-        providers = []
-
-
-        # Don't waste time calling Replicate
-        # when credentials/model aren't configured.
-
-        if _replicate_configured():
-
-            providers.append(
-                (
-                    "replicate",
-                    generate_replicate_provider_image,
-                )
-            )
-
-
-        # FLUX/Pollinations remains our fallback.
-
-        providers.append(
-            (
-                "flux",
-                generate_flux_image,
-            )
-        )
-
-
         errors = []
 
+        # =============================================
+        # 1. REPLICATE
+        # =============================================
 
-        for (
-            name,
-            generator,
-        ) in providers:
+        if _replicate_configured():
 
             try:
 
                 print(
-                    f"[IMAGE] Trying provider: {name}"
+                    "[IMAGE] Trying Replicate..."
                 )
 
-
                 result = (
-                    generator(
+                    generate_replicate_provider_image(
                         **kwargs
                     )
                 )
 
-
-                result = (
-                    _validate_image(
-                        result,
-                        name,
-                    )
-                )
-
-
                 print(
-                    f"[IMAGE] Provider succeeded: {name}"
+                    "[IMAGE] Replicate succeeded."
                 )
-
 
                 return result
 
-
             except Exception as error:
 
-                message = (
-                    f"{name}: {error}"
-                )
-
-
-                errors.append(
-                    message
-                )
-
-
                 print(
-                    f"[IMAGE] Provider failed: {name}",
+                    "[IMAGE] Replicate failed:",
                     repr(error),
                 )
 
+                errors.append(
+                    f"replicate: {error}"
+                )
 
-        # =================================================
-        # OPTIONAL LOCAL FALLBACK
-        # =================================================
+        else:
+
+            print(
+                "[IMAGE] Replicate not configured."
+            )
+
+        # =============================================
+        # 2. FLUX / POLLINATIONS
+        # =============================================
 
         try:
 
             print(
-                "[IMAGE] Trying provider: local"
+                "[IMAGE] Trying FLUX..."
             )
 
-
-            result = (
-                generate_local_image(
-                    **kwargs
-                )
+            result = generate_flux_image(
+                **kwargs
             )
 
-
-            return (
-                _validate_image(
-                    result,
-                    "local",
-                )
+            print(
+                "[IMAGE] FLUX succeeded."
             )
 
+            return result
 
         except Exception as error:
+
+            print(
+                "[IMAGE] FLUX failed:",
+                repr(error),
+            )
+
+            errors.append(
+                f"flux: {error}"
+            )
+
+        # =============================================
+        # 3. LOCAL FALLBACK
+        # =============================================
+
+        try:
+
+            print(
+                "[IMAGE] Falling back to local renderer."
+            )
+
+            result = generate_local_image(
+                **kwargs
+            )
+
+            print(
+                "[IMAGE] Local renderer succeeded."
+            )
+
+            return result
+
+        except Exception as error:
+
+            print(
+                "[IMAGE] Local renderer failed:",
+                repr(error),
+            )
 
             errors.append(
                 f"local: {error}"
             )
 
-
         raise RuntimeError(
             "All image providers failed. "
             + " | ".join(errors)
         )
-
-
-    # =====================================================
-    # UNKNOWN
-    # =====================================================
 
     raise ValueError(
         f"Unknown image provider: {selected}"
