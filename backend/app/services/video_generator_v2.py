@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import math
 import uuid
 from pathlib import Path
 
@@ -11,7 +14,6 @@ from PIL import (
 )
 
 from moviepy import (
-    ImageClip,
     VideoClip,
     concatenate_videoclips,
 )
@@ -25,6 +27,11 @@ WIDTH = 1080
 HEIGHT = 1080
 FPS = 30
 
+INTRO_DURATION = 2.4
+IDENTITY_DURATION = 2.5
+MESSAGE_DURATION = 2.8
+OUTRO_DURATION = 2.3
+
 
 # =========================================================
 # FONT LOADER
@@ -34,70 +41,54 @@ def get_font(
     size: int,
     bold: bool = False,
 ):
-
     if bold:
-
         paths = [
             "C:/Windows/Fonts/segoeuib.ttf",
             "C:/Windows/Fonts/arialbd.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         ]
-
     else:
-
         paths = [
             "C:/Windows/Fonts/segoeui.ttf",
             "C:/Windows/Fonts/arial.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         ]
 
-
     for path in paths:
-
         try:
-
             return ImageFont.truetype(
                 path,
                 size,
             )
-
         except OSError:
-
             continue
-
 
     return ImageFont.load_default()
 
 
 # =========================================================
-# COLOR
+# COLOR HELPERS
 # =========================================================
 
 def hex_to_rgb(
     value,
     fallback=(15, 23, 42),
 ):
-
     try:
-
         value = (
-            value
+            str(value)
             .strip()
             .lstrip("#")
         )
 
-
         if len(value) != 6:
-
             return fallback
-
 
         return tuple(
             int(
                 value[index:index + 2],
                 16,
             )
-
             for index in (
                 0,
                 2,
@@ -105,9 +96,7 @@ def hex_to_rgb(
             )
         )
 
-
     except Exception:
-
         return fallback
 
 
@@ -116,6 +105,13 @@ def mix(
     color_b,
     amount,
 ):
+    amount = max(
+        0.0,
+        min(
+            1.0,
+            amount,
+        ),
+    )
 
     return tuple(
         int(
@@ -124,30 +120,41 @@ def mix(
             + color_b[index]
             * amount
         )
-
         for index in range(3)
     )
 
 
-def contrast_color(
+def rgba(
+    color,
+    alpha,
+):
+    return (
+        color[0],
+        color[1],
+        color[2],
+        alpha,
+    )
+
+
+def luminance(
     color,
 ):
-
-    luminance = (
+    return (
         0.299 * color[0]
         + 0.587 * color[1]
         + 0.114 * color[2]
     )
 
 
-    if luminance > 165:
-
+def contrast_color(
+    color,
+):
+    if luminance(color) > 165:
         return (
             15,
             23,
             42,
         )
-
 
     return (
         255,
@@ -157,7 +164,7 @@ def contrast_color(
 
 
 # =========================================================
-# TEXT
+# TEXT HELPERS
 # =========================================================
 
 def text_width(
@@ -165,13 +172,11 @@ def text_width(
     text,
     font,
 ):
-
     box = draw.textbbox(
         (0, 0),
-        text,
+        str(text),
         font=font,
     )
-
 
     return (
         box[2]
@@ -186,13 +191,13 @@ def draw_centered(
     font,
     fill,
 ):
+    text = str(text)
 
     width = text_width(
         draw,
         text,
         font,
     )
-
 
     draw.text(
         (
@@ -211,72 +216,55 @@ def wrap_text(
     font,
     max_width,
 ):
-
     words = (
-        str(
-            text or ""
-        )
+        str(text or "")
+        .strip()
         .split()
     )
 
+    if not words:
+        return []
 
     lines = []
-
     current = ""
 
-
     for word in words:
-
         candidate = (
             f"{current} {word}"
             .strip()
         )
 
-
         if (
-            text_width(
+            not current
+            or text_width(
                 draw,
                 candidate,
                 font,
             )
             <= max_width
         ):
-
             current = candidate
 
-
         else:
-
-            if current:
-
-                lines.append(
-                    current
-                )
-
-
+            lines.append(current)
             current = word
 
-
     if current:
-
-        lines.append(
-            current
-        )
-
+        lines.append(current)
 
     return lines
 
 
-def draw_wrapped(
+def draw_wrapped_centered(
     draw,
     text,
-    y,
+    center_y,
     font,
     fill,
-    max_width=780,
-    line_height=65,
+    max_width=820,
+    line_height=64,
+    max_lines=4,
 ):
-
     lines = wrap_text(
         draw,
         text,
@@ -284,78 +272,190 @@ def draw_wrapped(
         max_width,
     )
 
+    lines = lines[:max_lines]
 
-    for line in lines:
+    if not lines:
+        return
 
+    total_height = (
+        len(lines)
+        * line_height
+    )
+
+    start_y = (
+        center_y
+        - total_height / 2
+    )
+
+    for index, line in enumerate(lines):
         draw_centered(
             draw,
             line,
-            y,
+            start_y
+            + index * line_height,
             font,
             fill,
         )
 
 
-        y += line_height
+def fit_title_font(
+    draw,
+    text,
+    maximum_size=74,
+    minimum_size=38,
+    maximum_width=850,
+):
+    size = maximum_size
+
+    while size >= minimum_size:
+        font = get_font(
+            size,
+            True,
+        )
+
+        if (
+            text_width(
+                draw,
+                text,
+                font,
+            )
+            <= maximum_width
+        ):
+            return font
+
+        size -= 2
+
+    return get_font(
+        minimum_size,
+        True,
+    )
 
 
 # =========================================================
-# BACKGROUND
+# BACKGROUND GENERATION
 # =========================================================
 
 def gradient_background(
     start,
     end,
+    horizontal=False,
 ):
-
-    image = Image.new(
-        "RGB",
+    array = np.zeros(
         (
-            WIDTH,
             HEIGHT,
+            WIDTH,
+            3,
         ),
+        dtype=np.uint8,
     )
 
+    if horizontal:
+        gradient = np.linspace(
+            0.0,
+            1.0,
+            WIDTH,
+        )
 
-    pixels = image.load()
-
-
-    for y in range(
-        HEIGHT
-    ):
-
-        amount = (
-            y
-            / max(
-                1,
-                HEIGHT - 1,
+        for channel in range(3):
+            array[
+                :,
+                :,
+                channel,
+            ] = (
+                start[channel]
+                + (
+                    end[channel]
+                    - start[channel]
+                )
+                * gradient
+            ).astype(
+                np.uint8
             )
+
+    else:
+        gradient = np.linspace(
+            0.0,
+            1.0,
+            HEIGHT,
         )
 
+        for channel in range(3):
+            array[
+                :,
+                :,
+                channel,
+            ] = (
+                start[channel]
+                + (
+                    end[channel]
+                    - start[channel]
+                )
+                * gradient[:, None]
+            ).astype(
+                np.uint8
+            )
 
-        color = mix(
-            start,
-            end,
-            amount,
-        )
-
-
-        for x in range(
-            WIDTH
-        ):
-
-            pixels[
-                x,
-                y,
-            ] = color
-
-
-    return image
+    return Image.fromarray(
+        array,
+        mode="RGB",
+    )
 
 
 # =========================================================
 # DECORATIVE BRAND ELEMENTS
 # =========================================================
+
+def add_glow(
+    image,
+    center,
+    radius,
+    color,
+    opacity=80,
+):
+    overlay = Image.new(
+        "RGBA",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        (
+            0,
+            0,
+            0,
+            0,
+        ),
+    )
+
+    draw = ImageDraw.Draw(
+        overlay
+    )
+
+    cx, cy = center
+
+    draw.ellipse(
+        (
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
+        ),
+        fill=rgba(
+            color,
+            opacity,
+        ),
+    )
+
+    overlay = overlay.filter(
+        ImageFilter.GaussianBlur(
+            radius // 2,
+        )
+    )
+
+    return Image.alpha_composite(
+        image.convert("RGBA"),
+        overlay,
+    ).convert("RGB")
+
 
 def add_brand_shapes(
     image,
@@ -363,6 +463,27 @@ def add_brand_shapes(
     secondary,
     accent,
 ):
+    image = add_glow(
+        image,
+        (
+            80,
+            100,
+        ),
+        270,
+        secondary,
+        75,
+    )
+
+    image = add_glow(
+        image,
+        (
+            1000,
+            940,
+        ),
+        310,
+        accent,
+        65,
+    )
 
     overlay = Image.new(
         "RGBA",
@@ -378,127 +499,133 @@ def add_brand_shapes(
         ),
     )
 
-
     draw = ImageDraw.Draw(
         overlay
     )
 
-
-    draw.ellipse(
-        (
-            -170,
-            -120,
-            340,
-            390,
-        ),
-        fill=(
-            secondary[0],
-            secondary[1],
-            secondary[2],
-            45,
-        ),
-    )
-
-
-    draw.ellipse(
-        (
-            780,
-            720,
-            1250,
-            1190,
-        ),
-        fill=(
-            accent[0],
-            accent[1],
-            accent[2],
-            50,
-        ),
-    )
-
-
+    # Top-right brand line.
     draw.rounded_rectangle(
         (
-            830,
-            80,
-            1000,
-            95,
+            815,
+            90,
+            980,
+            101,
         ),
-        radius=8,
-        fill=(
-            accent[0],
-            accent[1],
-            accent[2],
-            160,
+        radius=6,
+        fill=rgba(
+            accent,
+            190,
         ),
     )
 
-
-    overlay = (
-        overlay.filter(
-            ImageFilter.GaussianBlur(
-                5
-            )
-        )
+    # Bottom-left subtle line.
+    draw.rounded_rectangle(
+        (
+            100,
+            940,
+            270,
+            949,
+        ),
+        radius=5,
+        fill=rgba(
+            secondary,
+            150,
+        ),
     )
 
+    # Decorative rings.
+    draw.ellipse(
+        (
+            790,
+            -100,
+            1170,
+            280,
+        ),
+        outline=rgba(
+            accent,
+            45,
+        ),
+        width=4,
+    )
+
+    draw.ellipse(
+        (
+            -130,
+            760,
+            270,
+            1160,
+        ),
+        outline=rgba(
+            secondary,
+            40,
+        ),
+        width=4,
+    )
 
     return Image.alpha_composite(
-        image.convert(
-            "RGBA"
-        ),
+        image.convert("RGBA"),
         overlay,
-    ).convert(
-        "RGB"
-    )
+    ).convert("RGB")
 
 
 # =========================================================
-# LOGO
+# LOGO HELPERS
 # =========================================================
 
 def load_logo(
     logo_path,
 ):
-
-    logo = (
-        Image.open(
-            logo_path
-        )
-        .convert(
-            "RGBA"
-        )
+    path = Path(
+        logo_path
     )
 
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Logo file does not exist: {path}"
+        )
 
-    logo.thumbnail(
+    logo = Image.open(
+        path
+    ).convert(
+        "RGBA"
+    )
+
+    return logo
+
+
+def resize_logo(
+    logo,
+    maximum_width,
+    maximum_height,
+):
+    result = logo.copy()
+
+    result.thumbnail(
         (
-            420,
-            420,
+            maximum_width,
+            maximum_height,
         ),
         Image.Resampling.LANCZOS,
     )
 
-
-    return logo
+    return result
 
 
 def paste_logo(
     image,
     logo,
+    center_x,
     center_y,
 ):
-
-    x = (
-        WIDTH
-        - logo.width
-    ) // 2
-
-
-    y = (
-        center_y
-        - logo.height // 2
+    x = int(
+        center_x
+        - logo.width / 2
     )
 
+    y = int(
+        center_y
+        - logo.height / 2
+    )
 
     image.paste(
         logo,
@@ -510,8 +637,104 @@ def paste_logo(
     )
 
 
+def add_logo_card(
+    image,
+    logo,
+    center_y,
+    card_size=570,
+):
+    card_width = card_size
+    card_height = card_size
+
+    left = (
+        WIDTH
+        - card_width
+    ) // 2
+
+    top = int(
+        center_y
+        - card_height / 2
+    )
+
+    overlay = Image.new(
+        "RGBA",
+        (
+            WIDTH,
+            HEIGHT,
+        ),
+        (
+            0,
+            0,
+            0,
+            0,
+        ),
+    )
+
+    draw = ImageDraw.Draw(
+        overlay
+    )
+
+    # Shadow.
+    draw.rounded_rectangle(
+        (
+            left + 12,
+            top + 18,
+            left + card_width + 12,
+            top + card_height + 18,
+        ),
+        radius=48,
+        fill=(
+            0,
+            0,
+            0,
+            55,
+        ),
+    )
+
+    # White presentation card.
+    draw.rounded_rectangle(
+        (
+            left,
+            top,
+            left + card_width,
+            top + card_height,
+        ),
+        radius=48,
+        fill=(
+            255,
+            255,
+            255,
+            246,
+        ),
+    )
+
+    image = Image.alpha_composite(
+        image.convert("RGBA"),
+        overlay,
+    ).convert("RGB")
+
+    logo_display = resize_logo(
+        logo,
+        int(
+            card_width * 0.78
+        ),
+        int(
+            card_height * 0.78
+        ),
+    )
+
+    paste_logo(
+        image,
+        logo_display,
+        WIDTH // 2,
+        center_y,
+    )
+
+    return image
+
+
 # =========================================================
-# SCENE 1 — BRAND REVEAL
+# SCENE 1 — CINEMATIC LOGO REVEAL
 # =========================================================
 
 def create_intro_scene(
@@ -520,23 +743,26 @@ def create_intro_scene(
     secondary,
     accent,
 ):
-
     dark = mix(
         primary,
         (
-            3,
-            7,
+            2,
+            6,
             18,
         ),
-        0.55,
+        0.68,
     )
 
+    mid = mix(
+        primary,
+        secondary,
+        0.25,
+    )
 
     image = gradient_background(
         dark,
-        primary,
+        mid,
     )
-
 
     image = add_brand_shapes(
         image,
@@ -545,185 +771,256 @@ def create_intro_scene(
         accent,
     )
 
-
-    paste_logo(
+    image = add_logo_card(
         image,
         logo,
-        500,
+        center_y=505,
+        card_size=590,
     )
-
-
-    return image
-
-
-# =========================================================
-# SCENE 2 — BRAND STATEMENT
-# =========================================================
-
-def create_statement_scene(
-    business_name,
-    slogan,
-    primary,
-    secondary,
-    accent,
-):
-
-    dark = mix(
-        primary,
-        (
-            3,
-            7,
-            18,
-        ),
-        0.4,
-    )
-
-
-    image = gradient_background(
-        primary,
-        dark,
-    )
-
-
-    image = add_brand_shapes(
-        image,
-        primary,
-        secondary,
-        accent,
-    )
-
 
     draw = ImageDraw.Draw(
         image
     )
-
-
-    foreground = contrast_color(
-        dark
-    )
-
-
-    small = get_font(
-        25,
-        False,
-    )
-
-
-    title = get_font(
-        (
-            70
-            if len(
-                business_name
-            ) <= 18
-            else 52
-        ),
-        True,
-    )
-
-
-    slogan_font = get_font(
-        38,
-        False,
-    )
-
-
-    draw_centered(
-        draw,
-        "INTRODUCING",
-        275,
-        small,
-        accent,
-    )
-
-
-    draw_centered(
-        draw,
-        business_name.upper(),
-        360,
-        title,
-        foreground,
-    )
-
-
-    draw.rounded_rectangle(
-        (
-            450,
-            475,
-            630,
-            483,
-        ),
-        radius=4,
-        fill=accent,
-    )
-
-
-    draw_wrapped(
-        draw,
-        slogan,
-        550,
-        slogan_font,
-        foreground,
-        max_width=780,
-        line_height=55,
-    )
-
-
-    return image
-
-
-# =========================================================
-# SCENE 3 — PERSONALITY
-# =========================================================
-
-def create_personality_scene(
-    personality,
-    primary,
-    secondary,
-    accent,
-):
-
-    image = gradient_background(
-        (
-            248,
-            250,
-            252,
-        ),
-        (
-            232,
-            238,
-            247,
-        ),
-    )
-
-
-    draw = ImageDraw.Draw(
-        image
-    )
-
 
     label_font = get_font(
         24,
         True,
     )
 
+    draw_centered(
+        draw,
+        "A NEW BRAND IDENTITY",
+        875,
+        label_font,
+        accent,
+    )
 
-    main_font = get_font(
-        52,
+    return image
+
+
+# =========================================================
+# SCENE 2 — BRAND IDENTITY
+# =========================================================
+
+def create_identity_scene(
+    business_name,
+    slogan,
+    primary,
+    secondary,
+    accent,
+):
+    dark = mix(
+        primary,
+        (
+            3,
+            7,
+            18,
+        ),
+        0.68,
+    )
+
+    image = gradient_background(
+        primary,
+        dark,
+        horizontal=True,
+    )
+
+    image = add_brand_shapes(
+        image,
+        primary,
+        secondary,
+        accent,
+    )
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+    name = (
+        business_name
+        .strip()
+        .upper()
+    )
+
+    title_font = fit_title_font(
+        draw,
+        name,
+        maximum_size=82,
+        minimum_size=42,
+        maximum_width=850,
+    )
+
+    label_font = get_font(
+        24,
         True,
     )
 
+    slogan_font = get_font(
+        38,
+        False,
+    )
 
     draw_centered(
         draw,
-        "BRAND CHARACTER",
-        245,
+        "INTRODUCING",
+        280,
         label_font,
-        secondary,
+        accent,
     )
 
+    draw_centered(
+        draw,
+        name,
+        370,
+        title_font,
+        (
+            255,
+            255,
+            255,
+        ),
+    )
+
+    # Accent divider.
+    divider_width = 150
+
+    draw.rounded_rectangle(
+        (
+            WIDTH // 2
+            - divider_width // 2,
+            505,
+            WIDTH // 2
+            + divider_width // 2,
+            515,
+        ),
+        radius=5,
+        fill=accent,
+    )
+
+    draw_wrapped_centered(
+        draw,
+        slogan,
+        center_y=640,
+        font=slogan_font,
+        fill=(
+            235,
+            240,
+            248,
+        ),
+        max_width=800,
+        line_height=55,
+        max_lines=3,
+    )
+
+    return image
+
+
+# =========================================================
+# SCENE 3 — MARKETING MESSAGE
+# =========================================================
+
+def create_message_scene(
+    marketing_message,
+    personality,
+    primary,
+    secondary,
+    accent,
+):
+    light_start = mix(
+        (
+            255,
+            255,
+            255,
+        ),
+        accent,
+        0.05,
+    )
+
+    light_end = mix(
+        (
+            244,
+            247,
+            252,
+        ),
+        secondary,
+        0.07,
+    )
+
+    image = gradient_background(
+        light_start,
+        light_end,
+        horizontal=True,
+    )
+
+    image = add_glow(
+        image,
+        (
+            930,
+            170,
+        ),
+        260,
+        accent,
+        50,
+    )
+
+    image = add_glow(
+        image,
+        (
+            120,
+            890,
+        ),
+        300,
+        secondary,
+        35,
+    )
+
+    draw = ImageDraw.Draw(
+        image
+    )
+
+    label_font = get_font(
+        23,
+        True,
+    )
+
+    message_font = get_font(
+        46,
+        True,
+    )
+
+    chip_font = get_font(
+        22,
+        True,
+    )
+
+    draw_centered(
+        draw,
+        "WHAT WE STAND FOR",
+        210,
+        label_font,
+        primary,
+    )
+
+    draw_wrapped_centered(
+        draw,
+        marketing_message,
+        center_y=460,
+        font=message_font,
+        fill=(
+            20,
+            30,
+            50,
+        ),
+        max_width=820,
+        line_height=64,
+        max_lines=4,
+    )
+
+    # -----------------------------------------------------
+    # Personality chips
+    # -----------------------------------------------------
 
     words = (
-        personality[:3]
+        list(personality[:3])
         if personality
         else [
             "Modern",
@@ -732,123 +1029,113 @@ def create_personality_scene(
         ]
     )
 
-
-    y = 365
-
-
-    colors = [
+    chip_colors = [
         primary,
         secondary,
         accent,
     ]
 
+    chip_y = 760
+    gap = 18
 
-    for index, word in enumerate(
-        words
-    ):
+    chip_data = []
 
-        draw_centered(
-            draw,
-            str(
-                word
-            ).upper(),
-            y,
-            main_font,
-            colors[
-                index
-                % len(colors)
-            ],
+    for word in words:
+        label = str(
+            word
+        ).upper()
+
+        width = (
+            text_width(
+                draw,
+                label,
+                chip_font,
+            )
+            + 48
         )
 
+        chip_data.append(
+            (
+                label,
+                width,
+            )
+        )
 
-        y += 120
-
-
-    return image
-
-
-# =========================================================
-# SCENE 4 — MARKETING MESSAGE
-# =========================================================
-
-def create_message_scene(
-    marketing_message,
-    primary,
-    secondary,
-    accent,
-):
-
-    dark = (
-        8,
-        15,
-        30,
+    total_width = (
+        sum(
+            width
+            for _, width
+            in chip_data
+        )
+        + gap
+        * max(
+            0,
+            len(chip_data) - 1,
+        )
     )
 
+    current_x = (
+        WIDTH
+        - total_width
+    ) / 2
 
-    image = gradient_background(
-        dark,
-        mix(
-            primary,
-            dark,
-            0.55,
-        ),
-    )
-
-
-    image = add_brand_shapes(
-        image,
-        primary,
-        secondary,
-        accent,
-    )
-
-
-    draw = ImageDraw.Draw(
-        image
-    )
-
-
-    label = get_font(
-        23,
-        True,
-    )
-
-
-    message = get_font(
-        45,
-        True,
-    )
-
-
-    draw_centered(
-        draw,
-        "OUR PURPOSE",
-        270,
+    for index, (
         label,
-        accent,
-    )
+        chip_width,
+    ) in enumerate(
+        chip_data
+    ):
+        color = chip_colors[
+            index
+            % len(chip_colors)
+        ]
 
+        text_fill = contrast_color(
+            color
+        )
 
-    draw_wrapped(
-        draw,
-        marketing_message,
-        390,
-        message,
-        (
-            255,
-            255,
-            255,
-        ),
-        max_width=820,
-        line_height=67,
-    )
+        draw.rounded_rectangle(
+            (
+                current_x,
+                chip_y,
+                current_x + chip_width,
+                chip_y + 58,
+            ),
+            radius=29,
+            fill=color,
+        )
 
+        label_width = text_width(
+            draw,
+            label,
+            chip_font,
+        )
+
+        draw.text(
+            (
+                current_x
+                + (
+                    chip_width
+                    - label_width
+                )
+                / 2,
+                chip_y + 14,
+            ),
+            label,
+            font=chip_font,
+            fill=text_fill,
+        )
+
+        current_x += (
+            chip_width
+            + gap
+        )
 
     return image
 
 
 # =========================================================
-# SCENE 5 — OUTRO
+# SCENE 4 — OUTRO / CALL TO ACTION
 # =========================================================
 
 def create_outro_scene(
@@ -858,130 +1145,166 @@ def create_outro_scene(
     secondary,
     accent,
 ):
+    dark = mix(
+        primary,
+        (
+            2,
+            5,
+            15,
+        ),
+        0.72,
+    )
 
     image = gradient_background(
-        (
-            255,
-            255,
-            255,
-        ),
-        (
-            240,
-            244,
-            250,
+        dark,
+        mix(
+            dark,
+            secondary,
+            0.22,
         ),
     )
 
+    image = add_brand_shapes(
+        image,
+        primary,
+        secondary,
+        accent,
+    )
+
+    image = add_logo_card(
+        image,
+        logo,
+        center_y=380,
+        card_size=420,
+    )
 
     draw = ImageDraw.Draw(
         image
     )
 
-
-    small_logo = (
-        logo.copy()
+    name = (
+        business_name
+        .strip()
+        .upper()
     )
 
-
-    small_logo.thumbnail(
-        (
-            320,
-            320,
-        ),
-        Image.Resampling.LANCZOS,
-    )
-
-
-    paste_logo(
-        image,
-        small_logo,
-        380,
-    )
-
-
-    name_font = get_font(
-        (
-            55
-            if len(
-                business_name
-            ) <= 18
-            else 43
-        ),
-        True,
-    )
-
-
-    draw_centered(
+    name_font = fit_title_font(
         draw,
-        business_name.upper(),
-        610,
-        name_font,
-        primary,
+        name,
+        maximum_size=60,
+        minimum_size=36,
+        maximum_width=830,
     )
 
-
-    draw.rounded_rectangle(
-        (
-            485,
-            710,
-            595,
-            718,
-        ),
-        radius=4,
-        fill=accent,
-    )
-
-
-    tagline = get_font(
-        27,
+    tagline_font = get_font(
+        30,
         False,
     )
 
+    small_font = get_font(
+        21,
+        True,
+    )
+
+    draw_centered(
+        draw,
+        name,
+        640,
+        name_font,
+        (
+            255,
+            255,
+            255,
+        ),
+    )
+
+    draw.rounded_rectangle(
+        (
+            470,
+            735,
+            610,
+            745,
+        ),
+        radius=5,
+        fill=accent,
+    )
 
     draw_centered(
         draw,
         "BUILT FOR WHAT COMES NEXT.",
-        770,
-        tagline,
+        795,
+        tagline_font,
         (
-            71,
-            85,
-            105,
+            230,
+            235,
+            245,
         ),
     )
 
+    draw_centered(
+        draw,
+        "YOUR BRAND. YOUR IDENTITY.",
+        885,
+        small_font,
+        accent,
+    )
 
     return image
 
 
 # =========================================================
-# MOTION
+# MOTION HELPERS
 # =========================================================
+
+def ease_in_out(
+    value,
+):
+    value = max(
+        0.0,
+        min(
+            1.0,
+            value,
+        ),
+    )
+
+    return (
+        value
+        * value
+        * (
+            3
+            - 2 * value
+        )
+    )
+
 
 def animated_image_clip(
     pil_image,
     duration,
     zoom_start=1.0,
     zoom_end=1.04,
+    pan_x=0,
+    pan_y=0,
+    fade_duration=0.22,
 ):
-
-    base = (
-        pil_image
-        .convert(
-            "RGB"
-        )
+    base = pil_image.convert(
+        "RGB"
     )
 
+    fade_duration = min(
+        fade_duration,
+        duration / 3,
+    )
 
     def frame_function(t):
-
-        progress = (
-            t
-            / duration
+        raw_progress = (
+            t / duration
             if duration
             else 0
         )
 
+        progress = ease_in_out(
+            raw_progress
+        )
 
         scale = (
             zoom_start
@@ -992,16 +1315,21 @@ def animated_image_clip(
             * progress
         )
 
-
-        new_width = int(
-            WIDTH * scale
+        new_width = max(
+            WIDTH,
+            int(
+                WIDTH
+                * scale
+            ),
         )
 
-
-        new_height = int(
-            HEIGHT * scale
+        new_height = max(
+            HEIGHT,
+            int(
+                HEIGHT
+                * scale
+            ),
         )
-
 
         frame = base.resize(
             (
@@ -1011,18 +1339,51 @@ def animated_image_clip(
             Image.Resampling.LANCZOS,
         )
 
-
-        left = (
+        extra_x = (
             new_width
             - WIDTH
-        ) // 2
+        )
 
-
-        top = (
+        extra_y = (
             new_height
             - HEIGHT
-        ) // 2
+        )
 
+        shift_x = (
+            pan_x
+            * progress
+        )
+
+        shift_y = (
+            pan_y
+            * progress
+        )
+
+        left = int(
+            extra_x / 2
+            + shift_x
+        )
+
+        top = int(
+            extra_y / 2
+            + shift_y
+        )
+
+        left = max(
+            0,
+            min(
+                left,
+                extra_x,
+            ),
+        )
+
+        top = max(
+            0,
+            min(
+                top,
+                extra_y,
+            ),
+        )
 
         frame = frame.crop(
             (
@@ -1033,17 +1394,59 @@ def animated_image_clip(
             )
         )
 
-
-        return np.array(
-            frame
+        frame_array = np.array(
+            frame,
+            dtype=np.float32,
         )
 
+        # -------------------------------------------------
+        # Soft fade-in and fade-out.
+        # This gives the scene changes a less abrupt feel
+        # without depending on MoviePy version-specific
+        # transition APIs.
+        # -------------------------------------------------
 
-    return (
-        VideoClip(
-            frame_function,
-            duration=duration,
+        opacity = 1.0
+
+        if fade_duration > 0:
+            if t < fade_duration:
+                opacity = max(
+                    0.0,
+                    min(
+                        1.0,
+                        t / fade_duration,
+                    ),
+                )
+
+            elif t > (
+                duration
+                - fade_duration
+            ):
+                opacity = max(
+                    0.0,
+                    min(
+                        1.0,
+                        (
+                            duration - t
+                        )
+                        / fade_duration,
+                    ),
+                )
+
+        if opacity < 1.0:
+            frame_array *= opacity
+
+        return np.clip(
+            frame_array,
+            0,
+            255,
+        ).astype(
+            np.uint8
         )
+
+    return VideoClip(
+        frame_function,
+        duration=duration,
     )
 
 
@@ -1062,46 +1465,108 @@ def generate_promotional_video_v2(
     secondary_color: str = "#7C3AED",
     accent_color: str = "#06B6D4",
 ):
+    """
+    Generate the local promotional brand video.
+
+    This function intentionally keeps the same public
+    signature expected by video_provider.py.
+
+    Approximate duration:
+        10 seconds
+
+    Scenes:
+        1. Logo reveal
+        2. Brand identity + slogan
+        3. Marketing message + personality
+        4. Final logo / brand outro
+    """
+
+    print("")
+    print("========================================")
+    print("[VIDEO V2] Local promotional video")
+    print("========================================")
+    print(f"[VIDEO V2] Business: {business_name}")
+    print(f"[VIDEO V2] Logo: {logo_path}")
+
+    # -----------------------------------------------------
+    # SAFE DEFAULTS
+    # -----------------------------------------------------
+
+    business_name = (
+        str(
+            business_name
+            or "Your Brand"
+        )
+        .strip()
+    )
 
     if personality is None:
-
         personality = [
             "Modern",
             "Professional",
             "Reliable",
         ]
 
+    elif isinstance(
+        personality,
+        str,
+    ):
+        personality = [
+            item.strip()
+            for item in personality.split(",")
+            if item.strip()
+        ]
+
+    else:
+        personality = [
+            str(item).strip()
+            for item in personality
+            if str(item).strip()
+        ]
+
+    if not personality:
+        personality = [
+            "Modern",
+            "Professional",
+            "Reliable",
+        ]
 
     if not slogan:
-
         slogan = (
             "Built for what comes next."
         )
 
-
     if not marketing_message:
-
         marketing_message = (
             "A modern brand built around "
             "quality, trust and customer value."
         )
 
+    # -----------------------------------------------------
+    # OUTPUT DIRECTORY
+    # -----------------------------------------------------
 
     output_directory = Path(
         output_directory
     )
-
 
     output_directory.mkdir(
         parents=True,
         exist_ok=True,
     )
 
+    # -----------------------------------------------------
+    # COLORS
+    # -----------------------------------------------------
 
     primary = hex_to_rgb(
-        primary_color
+        primary_color,
+        (
+            79,
+            70,
+            229,
+        ),
     )
-
 
     secondary = hex_to_rgb(
         secondary_color,
@@ -1112,7 +1577,6 @@ def generate_promotional_video_v2(
         ),
     )
 
-
     accent = hex_to_rgb(
         accent_color,
         (
@@ -1122,6 +1586,9 @@ def generate_promotional_video_v2(
         ),
     )
 
+    # -----------------------------------------------------
+    # LOGO
+    # -----------------------------------------------------
 
     logo = load_logo(
         Path(
@@ -1129,13 +1596,15 @@ def generate_promotional_video_v2(
         )
     )
 
+    # -----------------------------------------------------
+    # BUILD FOUR SCENES
+    # -----------------------------------------------------
 
-    # -----------------------------------------------------
-    # BUILD SCENES
-    # -----------------------------------------------------
+    print(
+        "[VIDEO V2] Building scenes..."
+    )
 
     scenes = [
-
         (
             create_intro_scene(
                 logo,
@@ -1143,46 +1612,41 @@ def generate_promotional_video_v2(
                 secondary,
                 accent,
             ),
-            2.5,
+            INTRO_DURATION,
             1.00,
-            1.06,
+            1.055,
+            8,
+            8,
         ),
 
         (
-            create_statement_scene(
+            create_identity_scene(
                 business_name,
                 slogan,
                 primary,
                 secondary,
                 accent,
             ),
-            3.0,
-            1.03,
-            1.00,
-        ),
-
-        (
-            create_personality_scene(
-                personality,
-                primary,
-                secondary,
-                accent,
-            ),
-            3.0,
-            1.00,
-            1.035,
+            IDENTITY_DURATION,
+            1.045,
+            1.005,
+            -8,
+            5,
         ),
 
         (
             create_message_scene(
                 marketing_message,
+                personality,
                 primary,
                 secondary,
                 accent,
             ),
-            3.5,
-            1.035,
+            MESSAGE_DURATION,
             1.00,
+            1.035,
+            6,
+            -6,
         ),
 
         (
@@ -1193,35 +1657,40 @@ def generate_promotional_video_v2(
                 secondary,
                 accent,
             ),
-            2.5,
+            OUTRO_DURATION,
+            1.02,
             1.00,
-            1.04,
+            -5,
+            -5,
         ),
     ]
 
-
     clips = []
-
 
     for (
         image,
         duration,
         zoom_start,
         zoom_end,
+        pan_x,
+        pan_y,
     ) in scenes:
-
         clip = animated_image_clip(
-            image,
-            duration,
-            zoom_start,
-            zoom_end,
+            pil_image=image,
+            duration=duration,
+            zoom_start=zoom_start,
+            zoom_end=zoom_end,
+            pan_x=pan_x,
+            pan_y=pan_y,
         )
-
 
         clips.append(
             clip
         )
 
+    # -----------------------------------------------------
+    # CONCATENATE VIDEO
+    # -----------------------------------------------------
 
     final_video = (
         concatenate_videoclips(
@@ -1230,60 +1699,78 @@ def generate_promotional_video_v2(
         )
     )
 
-
     filename = (
         f"promo-v2-"
         f"{uuid.uuid4()}.mp4"
     )
-
 
     output_path = (
         output_directory
         / filename
     )
 
+    print(
+        f"[VIDEO V2] Rendering: {output_path}"
+    )
+
+    # -----------------------------------------------------
+    # EXPORT
+    # -----------------------------------------------------
 
     try:
-
         final_video.write_videofile(
             str(
                 output_path
             ),
-
             fps=FPS,
-
             codec="libx264",
-
             audio=False,
-
             preset="medium",
-
             ffmpeg_params=[
                 "-pix_fmt",
                 "yuv420p",
-
-                # Good quality without making
-                # the file unnecessarily huge.
                 "-crf",
                 "18",
+                "-movflags",
+                "+faststart",
             ],
-
             logger=None,
         )
 
-
     finally:
-
-        final_video.close()
-
+        try:
+            final_video.close()
+        except Exception:
+            pass
 
         for clip in clips:
-
             try:
                 clip.close()
-
             except Exception:
                 pass
 
+        try:
+            logo.close()
+        except Exception:
+            pass
+
+    if not output_path.exists():
+        raise RuntimeError(
+            "Video rendering completed but the MP4 file "
+            "was not created."
+        )
+
+    if output_path.stat().st_size < 1000:
+        raise RuntimeError(
+            "Generated MP4 appears to be empty."
+        )
+
+    print(
+        "[VIDEO V2] Video generated successfully."
+    )
+    print(
+        f"[VIDEO V2] Size: "
+        f"{output_path.stat().st_size} bytes"
+    )
 
     return output_path

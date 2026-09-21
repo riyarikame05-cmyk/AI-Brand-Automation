@@ -2,21 +2,81 @@ import json
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
+
+
+# =========================================================
+# PATHS + ENVIRONMENT
+# =========================================================
+
+BACKEND_DIR = (
+    Path(__file__).resolve().parent.parent
+)
+
+ENV_FILE = (
+    BACKEND_DIR / ".env"
+)
+
+load_dotenv(
+    ENV_FILE
+)
+
+
+# =========================================================
+# IMPORTS AFTER .ENV IS LOADED
+# =========================================================
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+)
+
+from fastapi.middleware.cors import (
+    CORSMiddleware,
+)
+
+from fastapi.responses import (
+    FileResponse,
+)
+
+from fastapi.staticfiles import (
+    StaticFiles,
+)
+
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import Asset, BrandKit, Project
-from .services.brand_intelligence import generate_brand_intelligence
-from .services.brand_package import create_brand_package
-from .services.color_extractor import extract_dominant_colors
-from .services.image_generator import generate_logo_image
-from .services.image_provider import generate_image
-from .services.video_generator import generate_promotional_video
+from .models import (
+    Asset,
+    BrandKit,
+    Project,
+)
+
+from .services.brand_intelligence import (
+    generate_brand_intelligence,
+)
+
+from .services.brand_package import (
+    create_brand_package,
+)
+
+from .services.color_extractor import (
+    extract_dominant_colors,
+)
+
+from .services.image_generator import (
+    generate_logo_image,
+)
+
+from .services.image_provider import (
+    generate_image,
+)
+
+from .services.video_provider import (
+    generate_video,
+)
 
 
 # =========================================================
@@ -25,8 +85,11 @@ from .services.video_generator import generate_promotional_video
 
 app = FastAPI(
     title="AI Brand Automation API",
-    description="Local AI-powered brand automation system",
-    version="5.0.0",
+    description=(
+        "Hybrid cloud and local "
+        "AI-powered brand automation system"
+    ),
+    version="6.0.0",
 )
 
 
@@ -35,7 +98,7 @@ app = FastAPI(
 # =========================================================
 
 GENERATED_DIR = (
-    Path(__file__).resolve().parent.parent
+    BACKEND_DIR
     / "generated"
 )
 
@@ -44,11 +107,16 @@ GENERATED_DIR.mkdir(
     exist_ok=True,
 )
 
+
 app.mount(
     "/generated",
+
     StaticFiles(
-        directory=str(GENERATED_DIR)
+        directory=str(
+            GENERATED_DIR
+        )
     ),
+
     name="generated",
 )
 
@@ -59,13 +127,21 @@ app.mount(
 
 app.add_middleware(
     CORSMiddleware,
+
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
+
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+
+    allow_methods=[
+        "*"
+    ],
+
+    allow_headers=[
+        "*"
+    ],
 )
 
 
@@ -73,20 +149,30 @@ app.add_middleware(
 # REQUEST MODELS
 # =========================================================
 
-class BrandRequest(BaseModel):
+class BrandRequest(
+    BaseModel
+):
+
     business_name: str
+
     description: str
+
     industry: str
+
     style: str
 
 
-class CampaignImageRequest(BaseModel):
+class CampaignImageRequest(
+    BaseModel
+):
+
     prompt: str = ""
+
     provider: str = "auto"
 
 
 # =========================================================
-# SERIALIZATION HELPERS
+# PROJECT SERIALIZER
 # =========================================================
 
 def project_to_dict(
@@ -114,6 +200,10 @@ def project_to_dict(
     }
 
 
+# =========================================================
+# ASSET SERIALIZER
+# =========================================================
+
 def asset_to_dict(
     asset: Asset,
 ):
@@ -135,12 +225,18 @@ def asset_to_dict(
             asset.prompt,
 
         "is_selected":
-            bool(asset.is_selected),
+            bool(
+                asset.is_selected
+            ),
 
         "created_at":
             asset.created_at,
     }
 
+
+# =========================================================
+# BRAND KIT SERIALIZER
+# =========================================================
 
 def brand_kit_to_dict(
     brand_kit: BrandKit,
@@ -156,11 +252,14 @@ def brand_kit_to_dict(
             else []
         )
 
+
         if not isinstance(
             personality,
             list,
         ):
+
             personality = []
+
 
     except Exception:
 
@@ -172,7 +271,9 @@ def brand_kit_to_dict(
             str(brand_kit.id),
 
         "project_id":
-            str(brand_kit.project_id),
+            str(
+                brand_kit.project_id
+            ),
 
         "primary_color":
             brand_kit.primary_color,
@@ -210,7 +311,7 @@ def brand_kit_to_dict(
 
 
 # =========================================================
-# FILE HELPERS
+# GET LOCAL ASSET PATH
 # =========================================================
 
 def get_local_path(
@@ -229,7 +330,16 @@ def get_local_path(
 
     filename = (
         asset.url
-        .split("/generated/")[-1]
+        .split(
+            "/generated/"
+        )[-1]
+    )
+
+
+    # Avoid accepting paths such as ../../file.
+
+    filename = (
+        Path(filename).name
     )
 
 
@@ -240,7 +350,7 @@ def get_local_path(
 
 
 # =========================================================
-# COLOR HELPER
+# COLOR EXTRACTION
 # =========================================================
 
 def extract_palette(
@@ -250,6 +360,7 @@ def extract_palette(
     colors = (
         extract_dominant_colors(
             file_path,
+
             number_of_colors=3,
         )
     )
@@ -262,12 +373,14 @@ def extract_palette(
         )
 
 
-    # Make extraction resilient in case the
-    # image contains fewer than three colors.
-    colors = list(colors)
+    colors = list(
+        colors
+    )
 
 
-    while len(colors) < 3:
+    while len(
+        colors
+    ) < 3:
 
         colors.append(
             colors[-1]
@@ -287,7 +400,7 @@ def extract_palette(
 
 
 # =========================================================
-# LOGO GENERATION HELPER
+# CREATE LOGO CONCEPTS
 # =========================================================
 
 def create_logo_concepts(
@@ -303,17 +416,50 @@ def create_logo_concepts(
 
     try:
 
-        for number in range(count):
+        for number in range(
+            count
+        ):
+
+            direction_index = (
+                number % 3
+            )
+
+
+            print("")
+            print(
+                "========================================"
+            )
 
             print(
                 f"[LOGO] Generating "
-                f"{number + 1}/{count} "
-                f"for {project.business_name}"
+                f"{number + 1}/{count}"
+            )
+
+            print(
+                f"[LOGO] Business: "
+                f"{project.business_name}"
+            )
+
+            print(
+                f"[LOGO] Creative direction: "
+                f"{direction_index}"
+            )
+
+            print(
+                "========================================"
             )
 
 
             # =============================================
-            # GENERATE IMAGE
+            # HYBRID LOGO GENERATION
+            #
+            # IMAGE_PROVIDER=auto:
+            #
+            # Replicate
+            #    ↓ failure
+            # FLUX
+            #    ↓ failure
+            # local renderer
             # =============================================
 
             image_bytes = (
@@ -333,13 +479,26 @@ def create_logo_concepts(
                     description=(
                         project.description
                     ),
+
+                    direction_index=(
+                        direction_index
+                    ),
+
+                    provider=None,
                 )
             )
 
 
+            # =============================================
+            # VALIDATE GENERATED IMAGE
+            # =============================================
+
             if not isinstance(
                 image_bytes,
-                (bytes, bytearray),
+                (
+                    bytes,
+                    bytearray,
+                ),
             ):
 
                 raise RuntimeError(
@@ -348,20 +507,23 @@ def create_logo_concepts(
                 )
 
 
-            if len(image_bytes) < 1000:
+            if len(
+                image_bytes
+            ) < 1000:
 
                 raise RuntimeError(
-                    "Generated logo image "
-                    "is too small or invalid."
+                    "Generated logo is "
+                    "too small or invalid."
                 )
 
 
             # =============================================
-            # SAVE IMAGE
+            # SAVE LOGO
             # =============================================
 
             filename = (
                 f"{project.id}-"
+                f"logo-"
                 f"{uuid.uuid4()}.png"
             )
 
@@ -373,7 +535,9 @@ def create_logo_concepts(
 
 
             file_path.write_bytes(
-                bytes(image_bytes)
+                bytes(
+                    image_bytes
+                )
             )
 
 
@@ -389,7 +553,7 @@ def create_logo_concepts(
 
 
             # =============================================
-            # EXTRACT COLORS
+            # EXTRACT PALETTE
             # =============================================
 
             try:
@@ -409,8 +573,6 @@ def create_logo_concepts(
                 )
 
 
-                # Palette extraction should not destroy
-                # an otherwise valid generated logo.
                 palette = {
                     "primary_color":
                         "#111827",
@@ -424,7 +586,7 @@ def create_logo_concepts(
 
 
             # =============================================
-            # SAVE DATABASE ASSET
+            # DATABASE ASSET
             # =============================================
 
             asset = Asset(
@@ -432,7 +594,9 @@ def create_logo_concepts(
                     project.id
                 ),
 
-                asset_type="logo",
+                asset_type=(
+                    "logo"
+                ),
 
                 url=(
                     image_url
@@ -440,7 +604,8 @@ def create_logo_concepts(
 
                 prompt=(
                     f"Logo concept "
-                    f"{number + 1} for "
+                    f"{number + 1} "
+                    f"for "
                     f"{project.business_name}"
                 ),
 
@@ -451,6 +616,7 @@ def create_logo_concepts(
             db.add(
                 asset
             )
+
 
             db.flush()
 
@@ -465,29 +631,36 @@ def create_logo_concepts(
 
 
             print(
-                f"[LOGO] Completed "
-                f"{number + 1}/{count}"
+                f"[LOGO] Concept "
+                f"{number + 1} complete."
             )
 
 
         return concepts
 
 
-    except Exception:
+    except Exception as error:
 
-        # SQLAlchemy rollback happens in the
-        # route calling this helper.
-        #
-        # Delete generated files so failed
-        # generations do not leave orphan files.
+        print(
+            "[LOGO] Batch failed:",
+            repr(error),
+        )
 
-        for file_path in created_files:
+
+        # =============================================
+        # REMOVE ORPHAN FILES
+        # =============================================
+
+        for file_path in (
+            created_files
+        ):
 
             try:
 
                 if file_path.exists():
 
                     file_path.unlink()
+
 
             except OSError:
 
@@ -506,10 +679,13 @@ def home():
 
     return {
         "message":
-            "AI Brand Automation API is running",
+            (
+                "AI Brand Automation "
+                "API is running"
+            ),
 
         "version":
-            "5.0.0",
+            "6.0.0",
     }
 
 
@@ -525,42 +701,56 @@ def health():
             "ok",
 
         "version":
-            "5.0.0",
+            "6.0.0",
     }
 
 
 # =========================================================
 # CREATE BRAND PROJECT
 #
-# IMPORTANT:
-# This does NOT generate logos.
-# Logo generation has its own endpoint.
+# This creates:
+#
+# Project
+# Brand intelligence
+# BrandKit
+#
+# It intentionally does NOT wait for logo generation.
 # =========================================================
 
 @app.post("/brand")
 def create_brand(
     brand: BrandRequest,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     # =====================================================
-    # VALIDATION
+    # VALIDATE INPUT
     # =====================================================
 
     business_name = (
-        brand.business_name.strip()
+        brand.business_name
+        .strip()
     )
+
 
     description = (
-        brand.description.strip()
+        brand.description
+        .strip()
     )
+
 
     industry = (
-        brand.industry.strip()
+        brand.industry
+        .strip()
     )
 
+
     style = (
-        brand.style.strip()
+        brand.style
+        .strip()
     )
 
 
@@ -568,6 +758,7 @@ def create_brand(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Business name is required."
             ),
@@ -578,8 +769,10 @@ def create_brand(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
-                "Business description is required."
+                "Business description "
+                "is required."
             ),
         )
 
@@ -588,6 +781,7 @@ def create_brand(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Industry is required."
             ),
@@ -598,6 +792,7 @@ def create_brand(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Brand style is required."
             ),
@@ -605,7 +800,7 @@ def create_brand(
 
 
     # =====================================================
-    # CREATE AND SAVE PROJECT FIRST
+    # CREATE PROJECT
     # =====================================================
 
     try:
@@ -661,6 +856,7 @@ def create_brand(
 
         raise HTTPException(
             status_code=500,
+
             detail=(
                 "Could not create project."
             ),
@@ -674,7 +870,8 @@ def create_brand(
     try:
 
         print(
-            "[AI] Generating brand intelligence..."
+            "[AI] Generating "
+            "brand intelligence..."
         )
 
 
@@ -705,8 +902,8 @@ def create_brand(
         ):
 
             raise RuntimeError(
-                "Brand intelligence returned "
-                "invalid data."
+                "Brand intelligence "
+                "returned invalid data."
             )
 
 
@@ -718,13 +915,13 @@ def create_brand(
     except Exception as error:
 
         print(
-            "[AI] Ollama error:",
+            "[AI] Ollama unavailable:",
             repr(error),
         )
 
 
         # =============================================
-        # FALLBACK BRAND INTELLIGENCE
+        # SAFE FALLBACK STRATEGY
         # =============================================
 
         intelligence = {
@@ -767,7 +964,7 @@ def create_brand(
 
 
     # =====================================================
-    # NORMALIZE AI RESPONSE
+    # NORMALIZE INTELLIGENCE
     # =====================================================
 
     typography = (
@@ -813,9 +1010,8 @@ def create_brand(
                 project.id
             ),
 
-            # Temporary colors.
-            # These are replaced when the
-            # user selects a logo.
+            # Temporary palette until
+            # a logo is selected.
 
             primary_color=(
                 "#111827"
@@ -832,7 +1028,7 @@ def create_brand(
             slogan=(
                 intelligence.get(
                     "slogan",
-                    ""
+                    "",
                 )
                 or ""
             ),
@@ -846,7 +1042,7 @@ def create_brand(
             tone=(
                 intelligence.get(
                     "tone",
-                    ""
+                    "",
                 )
                 or ""
             ),
@@ -854,7 +1050,7 @@ def create_brand(
             target_audience=(
                 intelligence.get(
                     "target_audience",
-                    ""
+                    "",
                 )
                 or ""
             ),
@@ -862,7 +1058,7 @@ def create_brand(
             marketing_message=(
                 intelligence.get(
                     "marketing_message",
-                    ""
+                    "",
                 )
                 or ""
             ),
@@ -916,16 +1112,13 @@ def create_brand(
 
         raise HTTPException(
             status_code=500,
+
             detail=(
-                "Project was created, but "
-                "brand kit creation failed."
+                "Project was created, "
+                "but brand kit creation failed."
             ),
         )
 
-
-    # =====================================================
-    # RETURN WITHOUT WAITING FOR IMAGE GENERATION
-    # =====================================================
 
     return {
         "message":
@@ -952,11 +1145,15 @@ def create_brand(
 
 @app.get("/projects")
 def get_projects(
-    db: Session = Depends(get_db),
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     projects = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .order_by(
             Project.created_at.desc()
         )
@@ -985,11 +1182,16 @@ def get_projects(
 )
 def get_project(
     project_id: str,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -1002,6 +1204,7 @@ def get_project(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -1025,11 +1228,16 @@ def get_project(
 )
 def generate_more_logos(
     project_id: str,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -1042,6 +1250,7 @@ def generate_more_logos(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -1051,7 +1260,7 @@ def generate_more_logos(
     try:
 
         print(
-            "[LOGO] Starting generation "
+            "[LOGO] Starting logo batch "
             f"for project {project.id}"
         )
 
@@ -1077,27 +1286,36 @@ def generate_more_logos(
         for concept in concepts:
 
             db.refresh(
-                concept["asset"]
+                concept[
+                    "asset"
+                ]
             )
 
 
         print(
-            "[LOGO] Batch completed."
+            "[LOGO] Batch complete."
         )
 
 
         return {
             "message":
-                "3 logo concepts generated",
+                (
+                    "3 logo concepts "
+                    "generated"
+                ),
 
             "concepts": [
                 {
                     **asset_to_dict(
-                        concept["asset"]
+                        concept[
+                            "asset"
+                        ]
                     ),
 
                     "palette":
-                        concept["palette"],
+                        concept[
+                            "palette"
+                        ],
                 }
 
                 for concept
@@ -1119,6 +1337,7 @@ def generate_more_logos(
 
         raise HTTPException(
             status_code=500,
+
             detail=(
                 "Logo generation failed."
             ),
@@ -1126,7 +1345,7 @@ def generate_more_logos(
 
 
 # =========================================================
-# SELECT LOGO + UPDATE COLORS + GENERATE VIDEO
+# SELECT LOGO + PALETTE + VIDEO
 # =========================================================
 
 @app.post(
@@ -1135,8 +1354,12 @@ def generate_more_logos(
 )
 def select_logo(
     project_id: str,
+
     asset_id: str,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     # =====================================================
@@ -1144,7 +1367,9 @@ def select_logo(
     # =====================================================
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -1157,6 +1382,7 @@ def select_logo(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -1168,7 +1394,9 @@ def select_logo(
     # =====================================================
 
     logo = (
-        db.query(Asset)
+        db.query(
+            Asset
+        )
         .filter(
             Asset.id
             == asset_id,
@@ -1187,6 +1415,7 @@ def select_logo(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Logo not found."
             ),
@@ -1207,6 +1436,7 @@ def select_logo(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Logo file not found."
             ),
@@ -1220,7 +1450,9 @@ def select_logo(
         # =================================================
 
         (
-            db.query(Asset)
+            db.query(
+                Asset
+            )
             .filter(
                 Asset.project_id
                 == project.id,
@@ -1243,22 +1475,46 @@ def select_logo(
 
 
         # =================================================
-        # EXTRACT FINAL COLORS
+        # FINAL COLOR PALETTE
         # =================================================
 
-        palette = (
-            extract_palette(
-                logo_path
+        try:
+
+            palette = (
+                extract_palette(
+                    logo_path
+                )
             )
-        )
+
+
+        except Exception as error:
+
+            print(
+                "[COLOR] Final extraction failed:",
+                repr(error),
+            )
+
+
+            palette = {
+                "primary_color":
+                    "#111827",
+
+                "secondary_color":
+                    "#6366F1",
+
+                "accent_color":
+                    "#8B5CF6",
+            }
 
 
         # =================================================
-        # LOAD BRAND KIT
+        # BRAND KIT
         # =================================================
 
         brand_kit = (
-            db.query(BrandKit)
+            db.query(
+                BrandKit
+            )
             .filter(
                 BrandKit.project_id
                 == project.id
@@ -1295,7 +1551,9 @@ def select_logo(
                 slogan="",
 
                 personality=(
-                    json.dumps([])
+                    json.dumps(
+                        []
+                    )
                 ),
 
                 tone="",
@@ -1352,7 +1610,9 @@ def select_logo(
                 json.loads(
                     brand_kit.personality
                 )
+
                 if brand_kit.personality
+
                 else []
             )
 
@@ -1372,15 +1632,24 @@ def select_logo(
 
         # =================================================
         # GENERATE VIDEO
+        #
+        # VIDEO_PROVIDER=auto:
+        #
+        # cloud API
+        #    ↓ failure
+        # MoviePy V2
         # =================================================
 
         print(
-            "[VIDEO] Generating video..."
+            "[VIDEO] Generating "
+            "promotional video..."
         )
 
 
         video_path = (
-            generate_promotional_video(
+            generate_video(
+                provider=None,
+
                 logo_path=(
                     logo_path
                 ),
@@ -1425,13 +1694,13 @@ def select_logo(
         if not video_path:
 
             raise RuntimeError(
-                "Video generator did not "
+                "Video provider did not "
                 "return a file."
             )
 
 
-        video_path = (
-            Path(video_path)
+        video_path = Path(
+            video_path
         )
 
 
@@ -1443,13 +1712,25 @@ def select_logo(
             )
 
 
+        if (
+            video_path.stat().st_size
+            < 1000
+        ):
+
+            raise RuntimeError(
+                "Generated video file "
+                "is invalid."
+            )
+
+
         # =================================================
         # VIDEO ASSET
         # =================================================
 
         video_url = (
             "http://127.0.0.1:8000"
-            f"/generated/{video_path.name}"
+            f"/generated/"
+            f"{video_path.name}"
         )
 
 
@@ -1458,16 +1739,18 @@ def select_logo(
                 project.id
             ),
 
-            asset_type="video",
+            asset_type=(
+                "video"
+            ),
 
             url=(
                 video_url
             ),
 
             prompt=(
-                "Automatic promotional "
-                "video from selected logo "
-                "and brand intelligence"
+                "Promotional video generated "
+                "from selected logo and "
+                "brand intelligence"
             ),
 
             is_selected=False,
@@ -1496,13 +1779,16 @@ def select_logo(
 
 
         print(
-            "[VIDEO] Video completed."
+            "[VIDEO] Promotional video complete."
         )
 
 
         return {
             "message":
-                "Brand identity finalized",
+                (
+                    "Brand identity "
+                    "finalized"
+                ),
 
             "logo":
                 asset_to_dict(
@@ -1534,6 +1820,7 @@ def select_logo(
 
         raise HTTPException(
             status_code=500,
+
             detail=(
                 "Could not finalize brand."
             ),
@@ -1549,11 +1836,16 @@ def select_logo(
 )
 def get_assets(
     project_id: str,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -1566,6 +1858,7 @@ def get_assets(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -1573,7 +1866,9 @@ def get_assets(
 
 
     assets = (
-        db.query(Asset)
+        db.query(
+            Asset
+        )
         .filter(
             Asset.project_id
             == project.id
@@ -1597,10 +1892,6 @@ def get_assets(
         )
 
 
-        # =================================================
-        # ADD PALETTE TO LOGOS
-        # =================================================
-
         if (
             asset.asset_type
             == "logo"
@@ -1620,7 +1911,9 @@ def get_assets(
 
                 try:
 
-                    data["palette"] = (
+                    data[
+                        "palette"
+                    ] = (
                         extract_palette(
                             file_path
                         )
@@ -1635,12 +1928,16 @@ def get_assets(
                     )
 
 
-                    data["palette"] = None
+                    data[
+                        "palette"
+                    ] = None
 
 
             else:
 
-                data["palette"] = None
+                data[
+                    "palette"
+                ] = None
 
 
         result.append(
@@ -1663,11 +1960,16 @@ def get_assets(
 )
 def get_brand_kit(
     project_id: str,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -1680,6 +1982,7 @@ def get_brand_kit(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -1687,7 +1990,9 @@ def get_brand_kit(
 
 
     brand_kit = (
-        db.query(BrandKit)
+        db.query(
+            BrandKit
+        )
         .filter(
             BrandKit.project_id
             == project.id
@@ -1721,8 +2026,12 @@ def get_brand_kit(
 )
 def generate_campaign_image(
     project_id: str,
+
     request: CampaignImageRequest,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     file_path = None
@@ -1733,7 +2042,9 @@ def generate_campaign_image(
     # =====================================================
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -1746,6 +2057,7 @@ def generate_campaign_image(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -1759,7 +2071,9 @@ def generate_campaign_image(
         # =================================================
 
         brand_kit = (
-            db.query(BrandKit)
+            db.query(
+                BrandKit
+            )
             .filter(
                 BrandKit.project_id
                 == project.id
@@ -1770,31 +2084,38 @@ def generate_campaign_image(
 
         primary_color = (
             brand_kit.primary_color
+
             if brand_kit
+
             else "#111827"
         )
 
 
         secondary_color = (
             brand_kit.secondary_color
+
             if brand_kit
+
             else "#4F46E5"
         )
 
 
         accent_color = (
             brand_kit.accent_color
+
             if brand_kit
+
             else "#06B6D4"
         )
 
 
         # =================================================
-        # PROMPT
+        # CAMPAIGN CONCEPT
         # =================================================
 
         custom_prompt = (
-            request.prompt.strip()
+            request.prompt
+            .strip()
         )
 
 
@@ -1808,9 +2129,9 @@ def generate_campaign_image(
         else:
 
             concept = (
-                "premium marketing campaign "
+                "Premium marketing campaign "
                 f"visual for "
-                f"{project.business_name}, "
+                f"{project.business_name}. "
                 f"{project.description}"
             )
 
@@ -1837,7 +2158,7 @@ def generate_campaign_image(
 
 
         # =================================================
-        # GENERATE IMAGE
+        # HYBRID IMAGE GENERATION
         # =================================================
 
         image_bytes = (
@@ -1854,6 +2175,10 @@ def generate_campaign_image(
                     specification
                 ),
 
+                business_name=(
+                    project.business_name
+                ),
+
                 industry=(
                     project.industry
                 ),
@@ -1867,24 +2192,30 @@ def generate_campaign_image(
 
         if not isinstance(
             image_bytes,
-            (bytes, bytearray),
+            (
+                bytes,
+                bytearray,
+            ),
         ):
 
             raise RuntimeError(
                 "Image provider returned "
-                "invalid image data."
+                "invalid data."
             )
 
 
-        if len(image_bytes) < 1000:
+        if len(
+            image_bytes
+        ) < 1000:
 
             raise RuntimeError(
-                "Generated image is invalid."
+                "Generated campaign image "
+                "is invalid."
             )
 
 
         # =================================================
-        # SAVE FILE
+        # SAVE IMAGE
         # =================================================
 
         filename = (
@@ -1901,7 +2232,9 @@ def generate_campaign_image(
 
 
         file_path.write_bytes(
-            bytes(image_bytes)
+            bytes(
+                image_bytes
+            )
         )
 
 
@@ -1912,7 +2245,7 @@ def generate_campaign_image(
 
 
         # =================================================
-        # DATABASE ASSET
+        # SAVE ASSET
         # =================================================
 
         asset = Asset(
@@ -1991,19 +2324,21 @@ def generate_campaign_image(
 
                 file_path.unlink()
 
+
             except OSError:
 
                 pass
 
 
         print(
-            "[CAMPAIGN] Generation error:",
+            "[CAMPAIGN] Error:",
             repr(error),
         )
 
 
         raise HTTPException(
             status_code=500,
+
             detail=(
                 "Campaign image "
                 "generation failed."
@@ -2012,7 +2347,7 @@ def generate_campaign_image(
 
 
 # =========================================================
-# DOWNLOAD COMPLETE BRAND PACKAGE
+# DOWNLOAD BRAND PACKAGE
 # =========================================================
 
 @app.get(
@@ -2020,7 +2355,10 @@ def generate_campaign_image(
 )
 def download_brand_package(
     project_id: str,
-    db: Session = Depends(get_db),
+
+    db: Session = Depends(
+        get_db
+    ),
 ):
 
     # =====================================================
@@ -2028,7 +2366,9 @@ def download_brand_package(
     # =====================================================
 
     project = (
-        db.query(Project)
+        db.query(
+            Project
+        )
         .filter(
             Project.id
             == project_id
@@ -2041,6 +2381,7 @@ def download_brand_package(
 
         raise HTTPException(
             status_code=404,
+
             detail=(
                 "Project not found."
             ),
@@ -2052,7 +2393,9 @@ def download_brand_package(
     # =====================================================
 
     brand_kit = (
-        db.query(BrandKit)
+        db.query(
+            BrandKit
+        )
         .filter(
             BrandKit.project_id
             == project.id
@@ -2065,6 +2408,7 @@ def download_brand_package(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Brand kit has not "
                 "been generated."
@@ -2077,7 +2421,9 @@ def download_brand_package(
     # =====================================================
 
     selected_logo = (
-        db.query(Asset)
+        db.query(
+            Asset
+        )
         .filter(
             Asset.project_id
             == project.id,
@@ -2097,6 +2443,7 @@ def download_brand_package(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Select a logo first."
             ),
@@ -2117,6 +2464,7 @@ def download_brand_package(
 
         raise HTTPException(
             status_code=400,
+
             detail=(
                 "Selected logo file "
                 "was not found."
@@ -2129,7 +2477,9 @@ def download_brand_package(
     # =====================================================
 
     latest_video = (
-        db.query(Asset)
+        db.query(
+            Asset
+        )
         .filter(
             Asset.project_id
             == project.id,
@@ -2167,7 +2517,7 @@ def download_brand_package(
 
 
     # =====================================================
-    # CREATE ZIP PACKAGE
+    # BUILD ZIP
     # =====================================================
 
     try:
@@ -2197,15 +2547,16 @@ def download_brand_package(
         )
 
 
-        package_path = (
-            Path(package_path)
+        package_path = Path(
+            package_path
         )
 
 
         if not package_path.exists():
 
             raise RuntimeError(
-                "Brand package was not created."
+                "Brand package "
+                "was not created."
             )
 
 
@@ -2234,6 +2585,7 @@ def download_brand_package(
 
         raise HTTPException(
             status_code=500,
+
             detail=(
                 "Could not create "
                 "brand package."

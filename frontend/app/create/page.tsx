@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 const INDUSTRIES = [
   { value: "clothing", label: "Clothing & Fashion" },
@@ -31,7 +33,6 @@ const INDUSTRIES = [
   { value: "logistics", label: "Logistics & Transportation" },
 ];
 
-
 const STYLES = [
   { value: "minimalist", label: "Minimal" },
   { value: "modern", label: "Modern" },
@@ -41,111 +42,181 @@ const STYLES = [
   { value: "corporate", label: "Professional / Corporate" },
 ];
 
+type CreationStage =
+  | "idle"
+  | "brand"
+  | "logos"
+  | "complete";
 
 export default function CreateBrandPage() {
-
   const router = useRouter();
 
-  const [businessName, setBusinessName] =
-    useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [description, setDescription] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [style, setStyle] = useState("");
 
-  const [description, setDescription] =
-    useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [stage, setStage] = useState<CreationStage>("idle");
+  const [error, setError] = useState("");
 
-  const [industry, setIndustry] =
-    useState("");
+  async function readResponse(response: Response) {
+    const text = await response.text();
 
-  const [style, setStyle] =
-    useState("");
+    if (!text) {
+      return {};
+    }
 
-  const [submitting, setSubmitting] =
-    useState(false);
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(
+        `Server returned an invalid response (${response.status}).`
+      );
+    }
+  }
 
-  const [error, setError] =
-    useState("");
-
-
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (submitting) {
+      return;
+    }
 
     setSubmitting(true);
     setError("");
+    setStage("brand");
 
+    let projectId: number | string | null = null;
 
     try {
+      /*
+       * STEP 1
+       * Create the project and brand strategy.
+       *
+       * Backend v6 does NOT generate logos here.
+       */
+      const brandResponse = await fetch(`${API_URL}/brand`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          business_name: businessName.trim(),
+          description: description.trim(),
+          industry,
+          style,
+        }),
+      });
 
-      const response = await fetch(
-        "http://127.0.0.1:8000/brand",
+      const brandData = await readResponse(brandResponse);
+
+      if (!brandResponse.ok) {
+        throw new Error(
+          brandData?.detail ||
+            brandData?.message ||
+            "Could not create brand project."
+        );
+      }
+
+      projectId = brandData?.project?.id;
+
+      if (!projectId) {
+        throw new Error(
+          "Brand project was created, but the server did not return a project ID."
+        );
+      }
+
+      /*
+       * STEP 2
+       * Generate the three logo concepts.
+       *
+       * Backend controls the three creative directions:
+       *
+       * 0 - minimal-geometric
+       * 1 - symbolic-negative-space
+       * 2 - typographic
+       */
+      setStage("logos");
+
+      const logoResponse = await fetch(
+        `${API_URL}/projects/${projectId}/generate-logo`,
         {
           method: "POST",
-
           headers: {
-            "Content-Type":
-            "application/json",
+            "Content-Type": "application/json",
           },
-
-          body: JSON.stringify({
-            business_name:
-            businessName.trim(),
-
-            description:
-            description.trim(),
-
-            industry,
-
-            style,
-          }),
         }
       );
 
+      const logoData = await readResponse(logoResponse);
 
-      const data =
-        await response.json();
-
-
-      if (!response.ok) {
-
+      if (!logoResponse.ok) {
         throw new Error(
-          data.detail ||
-          "Could not create brand"
+          logoData?.detail ||
+            logoData?.message ||
+            "Brand project was created, but logo generation failed."
         );
-
       }
 
+      setStage("complete");
 
-      router.push(
-        `/projects/${data.project.id}`
-      );
+      /*
+       * STEP 3
+       * Open the project page.
+       *
+       * The user can now compare the three concepts and
+       * select one. Video generation happens only after
+       * logo selection.
+       */
+      router.push(`/projects/${projectId}`);
+    } catch (caughtError) {
+      console.error(caughtError);
 
+      let message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Could not create brand.";
 
-    } catch (error) {
+      /*
+       * If the project itself succeeded but logo generation
+       * failed, tell the user that their project still exists.
+       */
+      if (projectId) {
+        message +=
+          " Your project was saved. You can open it from the dashboard and retry logo generation.";
+      }
 
-      console.error(error);
-
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Could not create brand."
-      );
-
+      setError(message);
+      setStage("idle");
       setSubmitting(false);
-
     }
-
   }
 
+  function getButtonText() {
+    if (!submitting) {
+      return "Generate My Brand";
+    }
+
+    switch (stage) {
+      case "brand":
+        return "Creating Brand Strategy...";
+
+      case "logos":
+        return "Generating Logo Concepts...";
+
+      case "complete":
+        return "Opening Your Brand...";
+
+      default:
+        return "Creating Brand...";
+    }
+  }
 
   return (
-
     <main className="min-h-screen bg-slate-950 text-white">
-
       <nav className="border-b border-slate-800 px-8 py-5">
-
         <div className="mx-auto flex max-w-6xl items-center justify-between">
-
           <Link
             href="/"
             className="text-2xl font-bold text-violet-400"
@@ -153,203 +224,191 @@ export default function CreateBrandPage() {
             BrandAI
           </Link>
 
-
           <Link
             href="/dashboard"
-            className="text-slate-400 hover:text-white"
+            className="text-slate-400 transition hover:text-white"
           >
             Dashboard
           </Link>
-
         </div>
-
       </nav>
 
-
       <section className="mx-auto max-w-2xl px-6 py-16">
-
         <p className="text-sm font-semibold text-violet-400">
           AI BRAND AUTOMATION
         </p>
-
 
         <h1 className="mt-2 text-4xl font-bold">
           Create Your Brand
         </h1>
 
-
         <p className="mt-3 text-slate-400">
-          Enter your company information.
-          Your logo concepts and colour
-          palettes will be generated automatically.
+          Enter your company information. BrandAI will build your
+          brand strategy and generate three distinct logo concepts.
         </p>
-
 
         <form
           onSubmit={handleSubmit}
           className="mt-10 space-y-6 rounded-2xl border border-slate-800 bg-slate-900 p-8"
         >
-
           <div>
-
-            <label className="mb-2 block font-medium">
+            <label
+              htmlFor="business-name"
+              className="mb-2 block font-medium"
+            >
               Business Name
             </label>
 
             <input
+              id="business-name"
               value={businessName}
               onChange={(event) =>
-                setBusinessName(
-                  event.target.value
-                )
+                setBusinessName(event.target.value)
               }
               required
               disabled={submitting}
               placeholder="Example: Nova Technologies"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-500"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-violet-500 disabled:opacity-60"
             />
-
           </div>
 
-
           <div>
-
-            <label className="mb-2 block font-medium">
+            <label
+              htmlFor="industry"
+              className="mb-2 block font-medium"
+            >
               Industry
             </label>
 
             <select
+              id="industry"
               value={industry}
               onChange={(event) =>
-                setIndustry(
-                  event.target.value
-                )
+                setIndustry(event.target.value)
               }
               required
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-violet-500 disabled:opacity-60"
             >
-
               <option value="">
                 Select industry
               </option>
 
-              {INDUSTRIES.map(
-                (item) => (
-
-                  <option
-                    key={item.value}
-                    value={item.value}
-                  >
-                    {item.label}
-                  </option>
-
-                )
-              )}
-
+              {INDUSTRIES.map((item) => (
+                <option
+                  key={item.value}
+                  value={item.value}
+                >
+                  {item.label}
+                </option>
+              ))}
             </select>
-
           </div>
 
-
           <div>
-
-            <label className="mb-2 block font-medium">
+            <label
+              htmlFor="description"
+              className="mb-2 block font-medium"
+            >
               Business Description
             </label>
 
             <textarea
+              id="description"
               value={description}
               onChange={(event) =>
-                setDescription(
-                  event.target.value
-                )
+                setDescription(event.target.value)
               }
               required
               rows={5}
               disabled={submitting}
               placeholder="Describe your company, products and customers..."
-              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-violet-500"
+              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-violet-500 disabled:opacity-60"
             />
-
           </div>
 
-
           <div>
-
-            <label className="mb-2 block font-medium">
+            <label
+              htmlFor="style"
+              className="mb-2 block font-medium"
+            >
               Brand Style
             </label>
 
             <select
+              id="style"
               value={style}
               onChange={(event) =>
-                setStyle(
-                  event.target.value
-                )
+                setStyle(event.target.value)
               }
               required
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-violet-500 disabled:opacity-60"
             >
-
               <option value="">
                 Select style
               </option>
 
-              {STYLES.map(
-                (item) => (
-
-                  <option
-                    key={item.value}
-                    value={item.value}
-                  >
-                    {item.label}
-                  </option>
-
-                )
-              )}
-
+              {STYLES.map((item) => (
+                <option
+                  key={item.value}
+                  value={item.value}
+                >
+                  {item.label}
+                </option>
+              ))}
             </select>
-
           </div>
 
-
           {error && (
-
             <div className="rounded-lg border border-red-800 bg-red-950/40 p-4 text-red-300">
-              {error}
+              <p>{error}</p>
+
+              <Link
+                href="/dashboard"
+                className="mt-2 inline-block font-medium text-red-200 underline hover:text-white"
+              >
+                Open Dashboard
+              </Link>
             </div>
-
           )}
-
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-violet-600 px-5 py-3 font-semibold hover:bg-violet-500 disabled:opacity-50"
+            className="w-full rounded-lg bg-violet-600 px-5 py-3 font-semibold transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-
-            {submitting
-              ? "Creating Brand Identity..."
-              : "Generate My Brand"}
-
+            {getButtonText()}
           </button>
 
-
           {submitting && (
+            <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full rounded-full bg-violet-500 transition-all duration-500 ${
+                    stage === "brand"
+                      ? "w-1/3"
+                      : stage === "logos"
+                        ? "w-2/3"
+                        : "w-full"
+                  }`}
+                />
+              </div>
 
-            <p className="text-center text-sm text-slate-400">
-              Generating three logo concepts and
-              analysing their colours...
-            </p>
+              <p className="text-center text-sm text-slate-400">
+                {stage === "brand" &&
+                  "Analysing your business and creating the brand strategy..."}
 
+                {stage === "logos" &&
+                  "Creating three distinct logo directions. Local AI generation can take a little time..."}
+
+                {stage === "complete" &&
+                  "Your brand concepts are ready. Opening the project..."}
+              </p>
+            </div>
           )}
-
         </form>
-
       </section>
-
     </main>
   );
 }
