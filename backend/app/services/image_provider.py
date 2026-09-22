@@ -1,23 +1,32 @@
+from __future__ import annotations
+
 import os
 
 from .flux_provider import (
     generate_flux_campaign,
     generate_flux_symbol,
 )
+
 from .replicate_provider import (
     generate_replicate_image,
 )
-from .logo_renderer import render_logo
+
+from .logo_renderer import (
+    compose_cloud_logo,
+    render_logo,
+)
 
 
 # =========================================================
 # CONFIGURATION
 # =========================================================
 
+# Local is now the default because master logo generation
+# must work completely offline.
 DEFAULT_PROVIDER = (
     os.getenv(
         "IMAGE_PROVIDER",
-        "auto",
+        "local",
     )
     .strip()
     .lower()
@@ -52,34 +61,108 @@ def _validate_image(
 
 
 # =========================================================
-# LOCAL PROVIDER
+# PURPOSE
 # =========================================================
 
-def generate_local_image(
-    **kwargs,
-) -> bytes:
-    """
-    Fully local logo fallback.
+def _get_purpose(
+    kwargs,
+) -> str:
 
-    The specification is normally produced by Ollama.
-    logo_renderer then creates the actual PNG.
-
-    No cloud API is required.
-    """
-
-    purpose = (
-        kwargs.get(
-            "purpose",
-            "symbol",
+    return (
+        str(
+            kwargs.get(
+                "purpose",
+                "symbol",
+            )
         )
         .strip()
         .lower()
     )
 
+
+# =========================================================
+# CLOUD LOGO COMPOSITION
+# =========================================================
+
+def _compose_if_symbol(
+    image_bytes: bytes,
+    provider_name: str,
+    **kwargs,
+) -> bytes:
+
+    image_bytes = _validate_image(
+        image_bytes,
+        provider_name,
+    )
+
+    purpose = _get_purpose(
+        kwargs
+    )
+
+    if purpose != "symbol":
+        return image_bytes
+
+    specification = kwargs.get(
+        "specification",
+        {},
+    )
+
+    business_name = (
+        str(
+            kwargs.get(
+                "business_name",
+                "Brand",
+            )
+        )
+        .strip()
+        or "Brand"
+    )
+
+    industry = (
+        str(
+            kwargs.get(
+                "industry",
+                "Business",
+            )
+        )
+        .strip()
+        or "Business"
+    )
+
+    if not specification:
+        raise RuntimeError(
+            "Logo specification is required."
+        )
+
+    result = compose_cloud_logo(
+        cloud_image_bytes=image_bytes,
+        business_name=business_name,
+        industry=industry,
+        specification=specification,
+    )
+
+    return _validate_image(
+        result,
+        f"{provider_name}-compositor",
+    )
+
+
+# =========================================================
+# LOCAL LOGO PROVIDER
+# =========================================================
+
+def generate_local_image(
+    **kwargs,
+) -> bytes:
+
+    purpose = _get_purpose(
+        kwargs
+    )
+
     if purpose != "symbol":
         raise RuntimeError(
-            "Local provider currently supports "
-            "logo symbols only."
+            "Local image provider currently "
+            "supports logo symbols only."
         )
 
     specification = kwargs.get(
@@ -87,14 +170,26 @@ def generate_local_image(
         {},
     )
 
-    business_name = kwargs.get(
-        "business_name",
-        "Brand",
+    business_name = (
+        str(
+            kwargs.get(
+                "business_name",
+                "Brand",
+            )
+        )
+        .strip()
+        or "Brand"
     )
 
-    industry = kwargs.get(
-        "industry",
-        "Business",
+    industry = (
+        str(
+            kwargs.get(
+                "industry",
+                "Business",
+            )
+        )
+        .strip()
+        or "Business"
     )
 
     if not specification:
@@ -113,7 +208,9 @@ def generate_local_image(
         specification=specification,
     )
 
-    png = result.get("png")
+    png = result.get(
+        "png"
+    )
 
     return _validate_image(
         png,
@@ -122,7 +219,7 @@ def generate_local_image(
 
 
 # =========================================================
-# FLUX
+# FLUX / POLLINATIONS
 # =========================================================
 
 def generate_flux_image(
@@ -144,18 +241,13 @@ def generate_flux_image(
         "",
     )
 
-    purpose = (
-        kwargs.get(
-            "purpose",
-            "campaign",
-        )
-        .strip()
-        .lower()
+    purpose = _get_purpose(
+        kwargs
     )
 
     if purpose == "campaign":
 
-        result = generate_flux_campaign(
+        raw_image = generate_flux_campaign(
             specification=specification,
             industry=industry,
             style=style,
@@ -163,7 +255,7 @@ def generate_flux_image(
 
     elif purpose == "symbol":
 
-        result = generate_flux_symbol(
+        raw_image = generate_flux_symbol(
             specification=specification,
             industry=industry,
             style=style,
@@ -175,9 +267,15 @@ def generate_flux_image(
             f"Unknown image purpose: {purpose}"
         )
 
-    return _validate_image(
-        result,
+    raw_image = _validate_image(
+        raw_image,
         "flux",
+    )
+
+    return _compose_if_symbol(
+        raw_image,
+        "flux",
+        **kwargs,
     )
 
 
@@ -204,30 +302,31 @@ def generate_replicate_provider_image(
         "",
     )
 
-    purpose = (
-        kwargs.get(
-            "purpose",
-            "campaign",
-        )
-        .strip()
-        .lower()
+    purpose = _get_purpose(
+        kwargs
     )
 
-    result = generate_replicate_image(
+    raw_image = generate_replicate_image(
         specification=specification,
         industry=industry,
         style=style,
         purpose=purpose,
     )
 
-    return _validate_image(
-        result,
+    raw_image = _validate_image(
+        raw_image,
         "replicate",
+    )
+
+    return _compose_if_symbol(
+        raw_image,
+        "replicate",
+        **kwargs,
     )
 
 
 # =========================================================
-# CONFIGURATION CHECKS
+# REPLICATE CONFIGURATION
 # =========================================================
 
 def _replicate_configured() -> bool:
@@ -249,12 +348,13 @@ def _replicate_configured() -> bool:
     )
 
     return bool(
-        token and model
+        token
+        and model
     )
 
 
 # =========================================================
-# ROUTER
+# MAIN PROVIDER ROUTER
 # =========================================================
 
 def generate_image(
@@ -265,40 +365,95 @@ def generate_image(
     selected = (
         provider
         or DEFAULT_PROVIDER
-        or "auto"
+        or "local"
     )
 
     selected = (
-        selected
+        str(selected)
         .strip()
         .lower()
     )
 
-    # -----------------------------------------------------
-    # LOCAL
-    # -----------------------------------------------------
+    purpose = _get_purpose(
+        kwargs
+    )
 
-    if selected == "local":
+    print(
+        f"[IMAGE] Selected provider: {selected}"
+    )
+
+    print(
+        f"[IMAGE] Purpose: {purpose}"
+    )
+
+    # =====================================================
+    # LOGOS ARE ALWAYS LOCAL
+    # =====================================================
+    #
+    # Master logo generation must be:
+    #
+    # Ollama
+    #   ->
+    # structured specification
+    #   ->
+    # deterministic local renderer
+    #
+    # This prevents:
+    # - online API dependency
+    # - image-model watermarks
+    # - malformed typography
+    # - inconsistent logo styles
+    # =====================================================
+
+    if purpose == "symbol":
+
+        print(
+            "[IMAGE] Logo symbol requested - "
+            "forcing local renderer."
+        )
 
         return generate_local_image(
             **kwargs
         )
 
-    # -----------------------------------------------------
-    # FLUX
-    # -----------------------------------------------------
+    # =====================================================
+    # EXPLICIT LOCAL
+    # =====================================================
+
+    if selected == "local":
+
+        # Local campaign-image generation is not currently
+        # implemented.
+        raise RuntimeError(
+            "Local campaign image generation "
+            "is not currently available."
+        )
+
+    # =====================================================
+    # EXPLICIT FLUX
+    # =====================================================
 
     if selected == "flux":
+
+        print(
+            "[IMAGE] Using FLUX/Pollinations "
+            "for campaign image."
+        )
 
         return generate_flux_image(
             **kwargs
         )
 
-    # -----------------------------------------------------
-    # REPLICATE
-    # -----------------------------------------------------
+    # =====================================================
+    # EXPLICIT REPLICATE
+    # =====================================================
 
     if selected == "replicate":
+
+        print(
+            "[IMAGE] Using Replicate "
+            "for campaign image."
+        )
 
         return (
             generate_replicate_provider_image(
@@ -306,17 +461,17 @@ def generate_image(
             )
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # AUTO
-    # -----------------------------------------------------
+    # =====================================================
 
     if selected == "auto":
 
         errors = []
 
-        # =============================================
-        # 1. REPLICATE
-        # =============================================
+        # -------------------------------------------------
+        # REPLICATE
+        # -------------------------------------------------
 
         if _replicate_configured():
 
@@ -355,14 +510,14 @@ def generate_image(
                 "[IMAGE] Replicate not configured."
             )
 
-        # =============================================
-        # 2. FLUX / POLLINATIONS
-        # =============================================
+        # -------------------------------------------------
+        # FLUX / POLLINATIONS
+        # -------------------------------------------------
 
         try:
 
             print(
-                "[IMAGE] Trying FLUX..."
+                "[IMAGE] Trying FLUX/Pollinations..."
             )
 
             result = generate_flux_image(
@@ -370,7 +525,7 @@ def generate_image(
             )
 
             print(
-                "[IMAGE] FLUX succeeded."
+                "[IMAGE] FLUX/Pollinations succeeded."
             )
 
             return result
@@ -378,7 +533,7 @@ def generate_image(
         except Exception as error:
 
             print(
-                "[IMAGE] FLUX failed:",
+                "[IMAGE] FLUX/Pollinations failed:",
                 repr(error),
             )
 
@@ -386,39 +541,8 @@ def generate_image(
                 f"flux: {error}"
             )
 
-        # =============================================
-        # 3. LOCAL FALLBACK
-        # =============================================
-
-        try:
-
-            print(
-                "[IMAGE] Falling back to local renderer."
-            )
-
-            result = generate_local_image(
-                **kwargs
-            )
-
-            print(
-                "[IMAGE] Local renderer succeeded."
-            )
-
-            return result
-
-        except Exception as error:
-
-            print(
-                "[IMAGE] Local renderer failed:",
-                repr(error),
-            )
-
-            errors.append(
-                f"local: {error}"
-            )
-
         raise RuntimeError(
-            "All image providers failed. "
+            "Campaign image generation failed. "
             + " | ".join(errors)
         )
 

@@ -408,10 +408,257 @@ def create_logo_concepts(
     db: Session,
     count: int = 3,
 ):
+    """
+    Generate a batch of local logo concepts.
+
+    Creative directions continue across multiple batches:
+
+        0 = Minimal Geometric
+        1 = Negative Space
+        2 = Monogram / Lettermark
+        3 = Abstract Motion
+        4 = Wordmark
+        5 = Brand Emblem
+
+    The frontend currently requests logos in batches of three,
+    so requesting six concepts results in two API calls while
+    still producing six different creative directions.
+    """
 
     concepts = []
-
     created_files = []
+
+    # -----------------------------------------------------
+    # COUNT EXISTING LOGOS
+    # -----------------------------------------------------
+
+    existing_logo_count = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id == project.id,
+            Asset.asset_type == "logo",
+        )
+        .count()
+    )
+
+    print("")
+    print("========================================")
+    print("[LOGO] STARTING LOGO BATCH")
+    print(f"[LOGO] Project: {project.id}")
+    print(f"[LOGO] Business: {project.business_name}")
+    print(f"[LOGO] Existing concepts: {existing_logo_count}")
+    print(f"[LOGO] New concepts requested: {count}")
+    print("========================================")
+
+    try:
+        for number in range(count):
+
+            # -------------------------------------------------
+            # CONTINUE DIRECTION SEQUENCE ACROSS API CALLS
+            # -------------------------------------------------
+
+            absolute_index = (
+                existing_logo_count
+                + number
+            )
+
+            direction_index = (
+                absolute_index % 6
+            )
+
+            concept_number = (
+                absolute_index + 1
+            )
+
+            print("")
+            print("----------------------------------------")
+            print(
+                f"[LOGO] Generating concept "
+                f"{concept_number}"
+            )
+            print(
+                f"[LOGO] Creative direction: "
+                f"{direction_index}"
+            )
+            print("----------------------------------------")
+
+            # -------------------------------------------------
+            # GENERATE LOGO
+            # -------------------------------------------------
+
+            image_bytes = generate_logo_image(
+                business_name=project.business_name,
+                industry=project.industry,
+                style=project.style,
+                description=project.description,
+                direction_index=direction_index,
+                provider="local",
+            )
+
+            # -------------------------------------------------
+            # VALIDATE IMAGE
+            # -------------------------------------------------
+
+            if not isinstance(
+                image_bytes,
+                (bytes, bytearray),
+            ):
+                raise RuntimeError(
+                    "Logo generator returned invalid image data."
+                )
+
+            if len(image_bytes) < 1000:
+                raise RuntimeError(
+                    "Generated logo is too small or invalid."
+                )
+
+            # -------------------------------------------------
+            # SAVE PNG
+            # -------------------------------------------------
+
+            filename = (
+                f"{project.id}-"
+                f"logo-{concept_number}-"
+                f"{uuid.uuid4()}.png"
+            )
+
+            file_path = (
+                GENERATED_DIR
+                / filename
+            )
+
+            file_path.write_bytes(
+                bytes(image_bytes)
+            )
+
+            created_files.append(
+                file_path
+            )
+
+            image_url = (
+                "http://127.0.0.1:8000"
+                f"/generated/{filename}"
+            )
+
+            # -------------------------------------------------
+            # EXTRACT DISPLAY PALETTE
+            # -------------------------------------------------
+
+            try:
+                palette = extract_palette(
+                    file_path
+                )
+
+                # The finished logo has a white background.
+                # Replace near-white extracted colors so they
+                # do not become misleading brand colors.
+                palette = clean_extracted_palette(
+                    palette
+                )
+
+            except Exception as error:
+                print(
+                    "[COLOR] Extraction failed:",
+                    repr(error),
+                )
+
+                palette = {
+                    "primary_color": "#111827",
+                    "secondary_color": "#6366F1",
+                    "accent_color": "#8B5CF6",
+                }
+
+            # -------------------------------------------------
+            # CREATE DATABASE ASSET
+            # -------------------------------------------------
+
+            asset = Asset(
+                project_id=project.id,
+                asset_type="logo",
+                url=image_url,
+                prompt=(
+                    f"Logo concept {concept_number} "
+                    f"for {project.business_name} "
+                    f"(direction {direction_index})"
+                ),
+                is_selected=False,
+            )
+
+            db.add(asset)
+            db.flush()
+
+            concepts.append(
+                {
+                    "asset": asset,
+                    "palette": palette,
+                }
+            )
+
+            print(
+                f"[LOGO] Concept "
+                f"{concept_number} complete."
+            )
+
+        print("")
+        print("========================================")
+        print(
+            f"[LOGO] Generated {len(concepts)} "
+            "concepts successfully."
+        )
+        print("========================================")
+
+        return concepts
+
+    except Exception as error:
+        print(
+            "[LOGO] Batch failed:",
+            repr(error),
+        )
+
+        # Remove images created by this failed transaction.
+        for file_path in created_files:
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+            except OSError:
+                pass
+
+        raise
+
+    # =====================================================
+    # CONTINUE CREATIVE DIRECTIONS ACROSS BATCHES
+    # =====================================================
+    #
+    # The frontend requests logos in batches of 3.
+    #
+    # Batch 1:
+    #   0 = minimal geometric
+    #   1 = negative space
+    #   2 = monogram
+    #
+    # Batch 2:
+    #   3 = abstract motion
+    #   4 = wordmark
+    #   5 = brand emblem
+    #
+    # Batch 3 (for 9 concepts):
+    #   cycles through the same families with fresh
+    #   Ollama generations.
+    # =====================================================
+
+    existing_logo_count = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id == project.id,
+            Asset.asset_type == "logo",
+        )
+        .count()
+    )
+
+    print(
+        f"[LOGO] Existing logo concepts: "
+        f"{existing_logo_count}"
+    )
 
 
     try:
@@ -421,8 +668,8 @@ def create_logo_concepts(
         ):
 
             direction_index = (
-                number % 3
-            )
+                existing_logo_count + number
+            ) % 6
 
 
             print("")

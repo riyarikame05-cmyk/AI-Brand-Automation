@@ -28,7 +28,6 @@ LOGO_TYPES = [
     "wordmark",
 ]
 
-
 SHAPES = [
     "circle",
     "diamond",
@@ -42,14 +41,12 @@ SHAPES = [
     "interlocking",
 ]
 
-
 LAYOUTS = [
     "symbol-top",
     "symbol-left",
     "emblem",
     "wordmark",
 ]
-
 
 FONT_STYLES = [
     "bold",
@@ -58,13 +55,11 @@ FONT_STYLES = [
     "minimal",
 ]
 
-
 GEOMETRY_STYLES = [
     "sharp",
     "rounded",
     "mixed",
 ]
-
 
 SYMMETRY_TYPES = [
     "none",
@@ -74,138 +69,173 @@ SYMMETRY_TYPES = [
 
 
 # =========================================================
-# CREATIVE DIRECTIONS
+# PROFESSIONAL CREATIVE DIRECTIONS
+# =========================================================
+#
+# IMPORTANT:
+# Each direction has a deliberately different structural
+# identity. This prevents batches from collapsing into
+# repeated polygon logos.
+#
 # =========================================================
 
 CREATIVE_DIRECTIONS = [
-
-    # -----------------------------------------------------
-    # CONCEPT 1
-    # SIMPLE / GEOMETRIC
-    # -----------------------------------------------------
-
     {
         "name": "minimal-geometric",
-
         "description": (
-            "Create a highly minimal geometric identity. "
-            "Use one dominant primitive or a clever combination "
-            "of at most two forms. The symbol must have a strong "
-            "silhouette and remain recognizable at very small sizes. "
-            "Avoid decorative complexity."
+            "Create a highly minimal geometric identity with one strong "
+            "silhouette. Use one dominant primitive or a disciplined "
+            "combination of at most two forms. Prioritize clarity, balance, "
+            "recognition and excellent small-size performance."
         ),
-
         "preferred_types": [
             "geometric",
             "abstract",
         ],
-
         "preferred_shapes": [
-            "circle",
-            "diamond",
             "hexagon",
+            "diamond",
             "square",
-            "arcs",
         ],
+        "preferred_layout": "symbol-top",
     },
 
-
-    # -----------------------------------------------------
-    # CONCEPT 2
-    # SYMBOLIC / NEGATIVE SPACE
-    # -----------------------------------------------------
-
     {
-        "name": "symbolic-negative-space",
-
+        "name": "negative-space",
         "description": (
-            "Create a conceptual symbol based on a meaningful visual "
-            "metaphor or negative space. The hidden idea must connect "
-            "directly to the business, product, customer benefit or "
-            "industry. Do not simply overlap generic polygons."
+            "Create a clever negative-space identity where empty space is "
+            "an intentional part of the symbol. The hidden visual idea must "
+            "connect to the business, service, customer result or initials. "
+            "Keep the idea immediately understandable rather than decorative."
         ),
-
         "preferred_types": [
             "negative-space",
             "combination",
         ],
-
         "preferred_shapes": [
-            "arcs",
-            "waves",
-            "lines",
             "circle",
+            "arcs",
             "triangle",
         ],
+        "preferred_layout": "symbol-left",
     },
 
-
-    # -----------------------------------------------------
-    # CONCEPT 3
-    # TYPOGRAPHIC
-    # -----------------------------------------------------
-
     {
-        "name": "typographic",
-
+        "name": "monogram",
         "description": (
-            "Create a typography-led identity using the company's "
-            "initials or name. Geometry should support the letterform "
-            "rather than dominate it. The result should feel custom, "
-            "recognizable and suitable for professional branding."
+            "Create a typography-led monogram based on one or two meaningful "
+            "initials from the business name. The letters should become the "
+            "identity themselves. Keep surrounding geometry secondary and "
+            "avoid placing ordinary text inside an unrelated generic shape."
         ),
-
         "preferred_types": [
             "monogram",
             "lettermark",
-            "wordmark",
         ],
-
         "preferred_shapes": [
-            "circle",
+            "lines",
             "square",
-            "diamond",
+            "circle",
+        ],
+        "preferred_layout": "symbol-top",
+    },
+
+    {
+        "name": "abstract-motion",
+        "description": (
+            "Create a distinctive abstract symbol expressing movement, "
+            "progress, transformation, momentum or flow. Use a dynamic "
+            "silhouette rather than a static badge. Avoid generic arrows "
+            "unless movement is fundamental to the business."
+        ),
+        "preferred_types": [
+            "abstract",
+            "combination",
+        ],
+        "preferred_shapes": [
+            "waves",
+            "arcs",
             "lines",
         ],
+        "preferred_layout": "symbol-left",
+    },
+
+    {
+        "name": "wordmark",
+        "description": (
+            "Create a typography-first wordmark identity. The company name "
+            "must be the main visual asset. Use proportion, spacing, weight "
+            "and restrained geometric modifications to make the name feel "
+            "distinctive. Do not rely on a large separate icon."
+        ),
+        "preferred_types": [
+            "wordmark",
+            "lettermark",
+        ],
+        "preferred_shapes": [
+            "lines",
+            "arcs",
+            "square",
+        ],
+        "preferred_layout": "wordmark",
+    },
+
+    {
+        "name": "brand-emblem",
+        "description": (
+            "Create a compact emblem or badge with a memorable silhouette. "
+            "Integrate symbol and identity into a unified mark suitable for "
+            "avatars, packaging, app icons and social profiles. Keep it "
+            "modern and simple rather than ornamental."
+        ),
+        "preferred_types": [
+            "emblem",
+            "combination",
+        ],
+        "preferred_shapes": [
+            "circle",
+            "rings",
+            "diamond",
+        ],
+        "preferred_layout": "emblem",
     },
 ]
 
 
 # =========================================================
-# DEFAULT PALETTES
-# Used only if Ollama does not provide valid colors.
+# FALLBACK PALETTES
 # =========================================================
 
 FALLBACK_PALETTES = [
-
     {
-        "primary": "#0F172A",
+        "primary": "#172554",
         "secondary": "#2563EB",
-        "accent": "#38BDF8",
+        "accent": "#60A5FA",
     },
-
     {
-        "primary": "#312E81",
+        "primary": "#3B0764",
         "secondary": "#7C3AED",
         "accent": "#C084FC",
     },
-
     {
         "primary": "#064E3B",
         "secondary": "#059669",
         "accent": "#34D399",
     },
-
     {
-        "primary": "#7C2D12",
+        "primary": "#431407",
         "secondary": "#EA580C",
         "accent": "#FDBA74",
     },
-
     {
         "primary": "#18181B",
         "secondary": "#52525B",
-        "accent": "#F59E0B",
+        "accent": "#A1A1AA",
+    },
+    {
+        "primary": "#164E63",
+        "secondary": "#0891B2",
+        "accent": "#67E8F9",
     },
 ]
 
@@ -222,44 +252,23 @@ def generate_logo_specification(
     direction_index: int | None = None,
 ) -> dict:
 
-    # -----------------------------------------------------
-    # CHOOSE CREATIVE DIRECTION
-    # -----------------------------------------------------
-
     if direction_index is None:
+        direction_index = random.randrange(len(CREATIVE_DIRECTIONS))
 
-        direction_index = random.randrange(
-            len(CREATIVE_DIRECTIONS)
-        )
+    direction_index = direction_index % len(CREATIVE_DIRECTIONS)
+    direction = CREATIVE_DIRECTIONS[direction_index]
 
-
-    direction_index = (
-        direction_index
-        % len(CREATIVE_DIRECTIONS)
-    )
-
-
-    direction = CREATIVE_DIRECTIONS[
-        direction_index
-    ]
-
-
-    generation_id = str(
-        uuid.uuid4()
-    )
-
-
-    # -----------------------------------------------------
-    # BUILD ART-DIRECTION PROMPT
-    # -----------------------------------------------------
+    generation_id = str(uuid.uuid4())
 
     prompt = f"""
-You are a senior brand identity designer and logo art director.
+You are a senior brand identity designer creating a professional
+commercial logo system.
 
-Your task is to create ONE professional vector logo design specification.
+Your job is to create ONE vector logo specification.
 
-Do not draw the logo.
-A deterministic SVG renderer will construct the final artwork from your JSON.
+A deterministic SVG renderer will turn your JSON into artwork.
+Therefore describe a design that can actually be constructed from
+simple clean vector geometry.
 
 ==================================================
 BUSINESS
@@ -271,20 +280,20 @@ Business name:
 Industry:
 {industry}
 
-Requested brand style:
+Requested style:
 {style}
 
-Business description:
+Business description and user preferences:
 {description}
 
 ==================================================
-CREATIVE DIRECTION
+ASSIGNED CREATIVE DIRECTION
 ==================================================
 
 Direction:
 {direction["name"]}
 
-Design objective:
+Objective:
 {direction["description"]}
 
 Preferred logo families:
@@ -293,57 +302,110 @@ Preferred logo families:
 Preferred geometric vocabulary:
 {", ".join(direction["preferred_shapes"])}
 
+Preferred layout:
+{direction["preferred_layout"]}
+
 Generation ID:
 {generation_id}
 
 ==================================================
-DESIGN PROCESS
+DESIGN THINKING
 ==================================================
 
-Understand what the business does before selecting the symbol.
+First infer:
 
-Choose a visual metaphor connected to at least one of:
+1. What does this business actually offer?
+2. What should customers feel about it?
+3. What is one meaningful idea that could represent that value?
+4. How can that idea become a simple recognizable vector mark?
 
-- the product or service
-- the customer's desired outcome
-- the company's personality
-- movement or transformation
-- trust
-- growth
+The symbol must have a reason to exist.
+
+Possible conceptual themes include:
+
 - precision
+- progress
+- confidence
+- discovery
+- protection
 - connection
+- transformation
+- craftsmanship
+- intelligence
 - speed
+- stability
 - simplicity
-- innovation
+- growth
 
-Do not use a shape simply because it looks technological.
-
-Every major visual decision must support the brand concept.
+Only use a theme when it makes sense for this particular business.
 
 ==================================================
-PRODUCTION REQUIREMENTS
+DISTINCTIVENESS
 ==================================================
 
-The logo must:
+This logo is part of a batch containing other logo concepts.
 
-- work as an SVG
-- work at small sizes
+This specific concept MUST follow the assigned creative direction.
+
+Do not drift toward a generic technology hexagon.
+Do not create arbitrary overlapping polygons.
+Do not make every business look like a software startup.
+Do not default to blue unless blue genuinely suits the brand.
+
+The logo should be distinguishable from the other concepts even
+when viewed only as a black silhouette.
+
+==================================================
+TYPOGRAPHY
+==================================================
+
+The business name must remain clear and readable.
+
+For monogram and lettermark concepts:
+derive the mark from meaningful business initials.
+
+For wordmarks:
+the company name is the dominant design element.
+
+For geometric or abstract concepts:
+the symbol should complement the wordmark rather than overwhelm it.
+
+Do not use extremely thin or low-contrast lettering.
+
+==================================================
+VECTOR PRODUCTION RULES
+==================================================
+
+The design must:
+
+- work as clean SVG
+- scale to small sizes
 - have a recognizable silhouette
-- remain understandable in one color
-- contain minimal unnecessary detail
-- use clean vector-friendly geometry
-- avoid photographic imagery
-- avoid humans and characters
-- avoid realistic objects
-- avoid 3D
-- avoid gradients
-- avoid glow
-- avoid shadows
-- avoid glass effects
-- avoid metallic effects
-- avoid generic AI-network imagery
-- avoid random overlapping polygons
+- remain meaningful in one color
+- use simple vector-friendly geometry
+- contain limited visual detail
 - use no more than three brand colors
+- maintain strong foreground/background contrast
+- work on a white background
+
+Never use:
+
+- photography
+- realistic images
+- humans
+- mascots
+- 3D effects
+- gradients
+- shadows
+- glow
+- glass effects
+- metallic effects
+- texture
+- stock-logo clichés
+- tiny decorative details
+- generic AI brain graphics
+- generic network-node graphics
+- meaningless polygon clusters
 
 ==================================================
 ALLOWED VALUES
@@ -368,26 +430,30 @@ symmetry:
 {", ".join(SYMMETRY_TYPES)}
 
 ==================================================
-COLOR DIRECTION
+COLOR STRATEGY
 ==================================================
 
-Create the palette specifically for this business.
+Choose colors for THIS business.
 
-The palette should reflect:
+Consider:
 
 - industry
 - requested style
-- brand personality
-- target audience
-- intended market positioning
+- audience
+- emotional tone
+- positioning
+- readability
 
-Avoid muddy combinations.
+The primary color should carry most of the identity.
 
-Ensure sufficient visual contrast.
+The secondary and accent colors must complement the primary color.
 
-Do not automatically use blue just because the business is related to technology.
+Avoid three colors with nearly identical brightness.
 
-Do not copy common sample palettes.
+Avoid very pale primary colors because the logo is displayed
+on a white background.
+
+Do not automatically select blue for technology businesses.
 
 ==================================================
 OUTPUT
@@ -395,124 +461,89 @@ OUTPUT
 
 Return valid JSON ONLY.
 
-Use this schema:
+Use exactly this schema:
 
 {{
-    "logo_type": "<allowed logo type>",
-    "shape": "<allowed shape>",
-    "layout": "<allowed layout>",
-    "font_style": "<allowed font style>",
+    "logo_type": "<allowed value>",
+    "shape": "<allowed value>",
+    "layout": "<allowed value>",
+    "font_style": "<allowed value>",
 
-    "visual_metaphor": "<what the symbol represents>",
+    "visual_metaphor": "<specific business-related visual idea>",
 
-    "composition": "<how the symbol geometry should be arranged>",
+    "composition": "<clear description of geometry arrangement>",
 
     "geometry_style": "<sharp, rounded, or mixed>",
-
     "symmetry": "<none, bilateral, or radial>",
 
-    "complexity": <integer from 1 to 3>,
+    "complexity": <1, 2, or 3>,
 
     "primary_color": "<6-digit HEX>",
     "secondary_color": "<6-digit HEX>",
     "accent_color": "<6-digit HEX>",
 
-    "rotation": <integer from 0 to 180>,
+    "rotation": <integer 0-180>,
+    "layers": <integer 1-4>,
+    "stroke_width": <integer 8-35>,
 
-    "layers": <integer from 1 to 4>,
-
-    "stroke_width": <integer from 8 to 35>,
-
-    "concept": "<short explanation connecting the identity to the business>"
+    "concept": "<one concise explanation connecting design to business>"
 }}
 
 ==================================================
-IMPORTANT RULES
+FINAL RULES
 ==================================================
 
-- Return JSON only.
-- Do not return Markdown.
-- Do not include explanations outside JSON.
-- Do not copy colors from examples or defaults.
-- Choose colors from the actual business context.
-- Make this direction visually distinct.
-- Avoid "interlocking" unless connectivity is genuinely the strongest metaphor.
-- Prefer the logo families assigned to this creative direction.
-- Prefer the shapes assigned to this creative direction.
-- complexity must be 1, 2, or 3.
-- rotation must be between 0 and 180.
-- layers must be between 1 and 4.
-- stroke_width must be between 8 and 35.
-- Every color must be a valid six-digit HEX color.
+Return JSON only.
+Do not return Markdown.
+Do not explain the JSON.
+
+Follow the assigned creative direction.
+
+Prefer:
+{", ".join(direction["preferred_types"])}
+
+Prefer geometry from:
+{", ".join(direction["preferred_shapes"])}
+
+Prefer layout:
+{direction["preferred_layout"]}
+
+Use meaningful business-specific symbolism.
+
+Every HEX value must contain exactly six hexadecimal digits.
+
+complexity must be 1, 2, or 3.
+rotation must be 0 through 180.
+layers must be 1 through 4.
+stroke_width must be 8 through 35.
 """
 
-
-    # -----------------------------------------------------
-    # ASK OLLAMA
-    # -----------------------------------------------------
-
     try:
-
         response = requests.post(
             OLLAMA_URL,
-
             json={
                 "model": OLLAMA_MODEL,
-
                 "prompt": prompt,
-
                 "stream": False,
-
                 "format": "json",
-
                 "options": {
-
-                    # Enough creativity for variation
-                    # without becoming too unpredictable.
-                    "temperature": 0.85,
-
-                    "seed": random.randint(
-                        1,
-                        2_000_000_000,
-                    ),
+                    "temperature": 0.78,
+                    "seed": random.randint(1, 2_000_000_000),
                 },
             },
-
             timeout=120,
         )
 
-
         response.raise_for_status()
 
-
         result = response.json()
+        raw_response = result.get("response", "{}")
 
-
-        raw_response = result.get(
-            "response",
-            "{}",
-        )
-
-
-        specification = json.loads(
-            raw_response
-        )
-
+        specification = json.loads(raw_response)
 
     except Exception as error:
-
-        print(
-            "Logo designer AI error:",
-            repr(error),
-        )
-
-
+        print("Logo designer AI error:", repr(error))
         specification = {}
-
-
-    # -----------------------------------------------------
-    # VALIDATE EVERYTHING
-    # -----------------------------------------------------
 
     return sanitize_specification(
         specification=specification,
@@ -531,78 +562,67 @@ def sanitize_specification(
     direction_index: int,
 ) -> dict:
 
+    if not isinstance(specification, dict):
+        specification = {}
+
     # -----------------------------------------------------
     # LOGO TYPE
     # -----------------------------------------------------
 
-    preferred_types = direction[
-        "preferred_types"
-    ]
-
+    preferred_types = direction["preferred_types"]
 
     logo_type = specification.get(
         "logo_type",
         preferred_types[0],
     )
 
-
     if logo_type not in LOGO_TYPES:
-
         logo_type = preferred_types[0]
 
-
-    # Force each concept to remain within
-    # its intended creative family.
     if logo_type not in preferred_types:
-
         logo_type = preferred_types[0]
-
 
     # -----------------------------------------------------
     # SHAPE
     # -----------------------------------------------------
 
-    preferred_shapes = direction[
-        "preferred_shapes"
-    ]
-
+    preferred_shapes = direction["preferred_shapes"]
 
     shape = specification.get(
         "shape",
         preferred_shapes[0],
     )
 
-
-    # Prevent the model from collapsing all
-    # three concepts into the same geometry.
-    if shape not in preferred_shapes:
-
+    if shape not in SHAPES:
         shape = preferred_shapes[0]
 
+    if shape not in preferred_shapes:
+        shape = preferred_shapes[0]
 
     # -----------------------------------------------------
     # LAYOUT
     # -----------------------------------------------------
 
+    preferred_layout = direction["preferred_layout"]
+
     layout = specification.get(
         "layout",
-        "symbol-top",
+        preferred_layout,
     )
 
-
     if layout not in LAYOUTS:
+        layout = preferred_layout
 
-        layout = "symbol-top"
-
-
-    # Wordmarks should use wordmark layout.
+    # Keep strongly structured directions structurally distinct.
     if logo_type == "wordmark":
-
         layout = "wordmark"
-
+    elif logo_type == "emblem":
+        layout = "emblem"
+    elif direction["name"] in {"negative-space", "abstract-motion"}:
+        layout = preferred_layout
 
     # -----------------------------------------------------
-    # FONT STYLE
+    # FONT
     # -----------------------------------------------------
 
     font_style = specification.get(
@@ -610,14 +630,11 @@ def sanitize_specification(
         "modern",
     )
 
-
     if font_style not in FONT_STYLES:
-
         font_style = "modern"
 
-
     # -----------------------------------------------------
-    # GEOMETRY STYLE
+    # GEOMETRY
     # -----------------------------------------------------
 
     geometry_style = specification.get(
@@ -625,201 +642,111 @@ def sanitize_specification(
         "rounded",
     )
 
-
     if geometry_style not in GEOMETRY_STYLES:
-
         geometry_style = "rounded"
-
-
-    # -----------------------------------------------------
-    # SYMMETRY
-    # -----------------------------------------------------
 
     symmetry = specification.get(
         "symmetry",
         "bilateral",
     )
 
-
     if symmetry not in SYMMETRY_TYPES:
-
         symmetry = "bilateral"
 
-
     # -----------------------------------------------------
-    # FALLBACK PALETTE
+    # COLORS
     # -----------------------------------------------------
 
     palette = FALLBACK_PALETTES[
-        direction_index
-        % len(FALLBACK_PALETTES)
+        direction_index % len(FALLBACK_PALETTES)
     ]
 
-
     primary = clean_hex(
-        specification.get(
-            "primary_color"
-        ),
-
-        palette[
-            "primary"
-        ],
+        specification.get("primary_color"),
+        palette["primary"],
     )
-
 
     secondary = clean_hex(
-        specification.get(
-            "secondary_color"
-        ),
-
-        palette[
-            "secondary"
-        ],
+        specification.get("secondary_color"),
+        palette["secondary"],
     )
-
 
     accent = clean_hex(
-        specification.get(
-            "accent_color"
-        ),
-
-        palette[
-            "accent"
-        ],
+        specification.get("accent_color"),
+        palette["accent"],
     )
 
+    # Prevent invisible/pale primary marks on white.
+    if is_too_light(primary):
+        primary = palette["primary"]
+
+    if primary == secondary:
+        secondary = palette["secondary"]
+
+    if secondary == accent:
+        accent = palette["accent"]
 
     # -----------------------------------------------------
-    # RETURN CLEAN SPECIFICATION
+    # RESULT
     # -----------------------------------------------------
 
     return {
+        "logo_type": logo_type,
+        "shape": shape,
+        "layout": layout,
+        "font_style": font_style,
 
-        "logo_type":
-        logo_type,
-
-        "shape":
-        shape,
-
-        "layout":
-        layout,
-
-        "font_style":
-        font_style,
-
-
-        "visual_metaphor":
-        clean_text(
-            specification.get(
-                "visual_metaphor"
-            ),
-
-            (
-                "A simple symbol representing "
-                "the brand's core value."
-            ),
+        "visual_metaphor": clean_text(
+            specification.get("visual_metaphor"),
+            "A distinctive symbol representing the brand's core value.",
         ),
 
-
-        "composition":
-        clean_text(
-            specification.get(
-                "composition"
-            ),
-
-            "Balanced centered composition.",
+        "composition": clean_text(
+            specification.get("composition"),
+            "Balanced professional vector composition.",
         ),
 
+        "geometry_style": geometry_style,
+        "symmetry": symmetry,
 
-        "geometry_style":
-        geometry_style,
-
-
-        "symmetry":
-        symmetry,
-
-
-        "complexity":
-        clamp_integer(
-            specification.get(
-                "complexity",
-                2,
-            ),
-
+        "complexity": clamp_integer(
+            specification.get("complexity", 2),
             1,
             3,
             2,
         ),
 
+        "primary_color": primary,
+        "secondary_color": secondary,
+        "accent_color": accent,
 
-        "primary_color":
-        primary,
-
-
-        "secondary_color":
-        secondary,
-
-
-        "accent_color":
-        accent,
-
-
-        "rotation":
-        clamp_integer(
-            specification.get(
-                "rotation",
-                0,
-            ),
-
+        "rotation": clamp_integer(
+            specification.get("rotation", 0),
             0,
             180,
             0,
         ),
 
-
-        "layers":
-        clamp_integer(
-            specification.get(
-                "layers",
-                2,
-            ),
-
+        "layers": clamp_integer(
+            specification.get("layers", 2),
             1,
             4,
             2,
         ),
 
-
-        "stroke_width":
-        clamp_integer(
-            specification.get(
-                "stroke_width",
-                18,
-            ),
-
+        "stroke_width": clamp_integer(
+            specification.get("stroke_width", 18),
             8,
             35,
             18,
         ),
 
-
-        "concept":
-        clean_text(
-            specification.get(
-                "concept"
-            ),
-
-            (
-                "Distinctive professional "
-                "brand identity."
-            ),
+        "concept": clean_text(
+            specification.get("concept"),
+            "Distinctive professional brand identity.",
         ),
 
-
-        "creative_direction":
-        direction[
-            "name"
-        ],
+        "creative_direction": direction["name"],
     }
 
 
@@ -827,46 +754,54 @@ def sanitize_specification(
 # HEX VALIDATION
 # =========================================================
 
-def clean_hex(
-    value,
-    fallback,
-):
+def clean_hex(value, fallback):
 
-    if not isinstance(
-        value,
-        str,
-    ):
-
+    if not isinstance(value, str):
         return fallback
-
 
     value = value.strip()
 
-
     if len(value) != 7:
-
         return fallback
-
 
     if not value.startswith("#"):
-
         return fallback
-
 
     try:
-
-        int(
-            value[1:],
-            16,
-        )
-
-
+        int(value[1:], 16)
         return value.upper()
 
-
     except ValueError:
-
         return fallback
+
+
+# =========================================================
+# LIGHTNESS CHECK
+# =========================================================
+
+def is_too_light(hex_color: str) -> bool:
+    """
+    Reject colors that are likely to disappear against the
+    white logo preview background.
+    """
+
+    try:
+        value = hex_color.lstrip("#")
+
+        red = int(value[0:2], 16)
+        green = int(value[2:4], 16)
+        blue = int(value[4:6], 16)
+
+        luminance = (
+            0.2126 * red
+            + 0.7152 * green
+            + 0.0722 * blue
+        )
+
+        return luminance > 215
+
+    except Exception:
+        return False
 
 
 # =========================================================
@@ -881,23 +816,14 @@ def clamp_integer(
 ):
 
     try:
-
-        value = int(
-            value
-        )
-
+        value = int(value)
 
         return max(
             minimum,
-            min(
-                maximum,
-                value,
-            ),
+            min(maximum, value),
         )
 
-
     except Exception:
-
         return fallback
 
 
@@ -910,22 +836,12 @@ def clean_text(
     fallback,
 ):
 
-    if not isinstance(
-        value,
-        str,
-    ):
-
+    if not isinstance(value, str):
         return fallback
-
 
     value = value.strip()
 
-
     if not value:
-
         return fallback
 
-
-    # Prevent extremely verbose local-model outputs
-    # from propagating through the renderer.
     return value[:500]

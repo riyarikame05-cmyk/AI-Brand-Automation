@@ -86,6 +86,146 @@ interface SelectLogoResponse {
 }
 
 // ======================================================
+// DESIGN DIRECTIONS
+// ======================================================
+
+const DIRECTIONS = [
+  {
+    name: "Minimal Geometric",
+    description: "Clean geometry with a strong, scalable silhouette.",
+  },
+  {
+    name: "Negative Space",
+    description: "A concept built around purposeful hidden space.",
+  },
+  {
+    name: "Monogram",
+    description: "A recognizable mark based on your brand initials.",
+  },
+  {
+    name: "Abstract Motion",
+    description: "A dynamic symbol expressing progress and movement.",
+  },
+  {
+    name: "Wordmark",
+    description: "A typography-led identity focused on the brand name.",
+  },
+  {
+    name: "Brand Emblem",
+    description: "A compact identity designed for versatile brand use.",
+  },
+];
+
+// ======================================================
+// HELPERS
+// ======================================================
+
+function getAssetUrl(url: string) {
+  if (!url) return "";
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("data:") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+
+  return `${API}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function formatLabel(value?: string | null) {
+  if (!value) return "";
+
+  return value
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function safeColor(color?: string | null, fallback = "#18181B") {
+  return color || fallback;
+}
+
+function isNearWhite(color?: string | null) {
+  if (!color) return true;
+
+  const normalized = color.trim().replace("#", "");
+
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return false;
+  }
+
+  const red = parseInt(normalized.slice(0, 2), 16);
+  const green = parseInt(normalized.slice(2, 4), 16);
+  const blue = parseInt(normalized.slice(4, 6), 16);
+
+  const luminance =
+    0.2126 * red +
+    0.7152 * green +
+    0.0722 * blue;
+
+  return luminance > 225;
+}
+
+function cleanPalette(palette?: Palette | null): Palette | null {
+  if (!palette) return null;
+
+  const fallback = [
+    "#18181B",
+    "#6D5DFC",
+    "#8B5CF6",
+  ];
+
+  const source = [
+    palette.primary_color,
+    palette.secondary_color,
+    palette.accent_color,
+  ];
+
+  const useful = source.filter(
+    (color) => color && !isNearWhite(color)
+  );
+
+  const result: string[] = [];
+
+  useful.forEach((color) => {
+    if (!result.includes(color.toUpperCase())) {
+      result.push(color.toUpperCase());
+    }
+  });
+
+  fallback.forEach((color) => {
+    if (
+      result.length < 3 &&
+      !result.includes(color)
+    ) {
+      result.push(color);
+    }
+  });
+
+  return {
+    primary_color: result[0],
+    secondary_color: result[1],
+    accent_color: result[2],
+  };
+}
+
+function getDirection(index: number) {
+  return DIRECTIONS[index % DIRECTIONS.length];
+}
+
+function dateValue(value?: string) {
+  if (!value) return 0;
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isNaN(timestamp)
+    ? 0
+    : timestamp;
+}
+
+// ======================================================
 // PAGE
 // ======================================================
 
@@ -93,18 +233,32 @@ export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id;
 
-  const [project, setProject] = useState<Project | null>(null);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
+  const [project, setProject] =
+    useState<Project | null>(null);
 
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [selectingLogo, setSelectingLogo] = useState<string | null>(null);
+  const [assets, setAssets] =
+    useState<Asset[]>([]);
 
-  const [error, setError] = useState("");
+  const [brandKit, setBrandKit] =
+    useState<BrandKit | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [generating, setGenerating] =
+    useState(false);
+
+  const [selectingLogo, setSelectingLogo] =
+    useState<string | null>(null);
+
+  const [error, setError] =
+    useState("");
+
+  const [successMessage, setSuccessMessage] =
+    useState("");
 
   // ======================================================
-  // API HELPER
+  // ERROR HELPER
   // ======================================================
 
   const getErrorMessage = async (
@@ -112,7 +266,11 @@ export default function ProjectPage() {
     fallback: string
   ): Promise<string> => {
     try {
-      const data = await response.json();
+      const text = await response.text();
+
+      if (!text) return fallback;
+
+      const data = JSON.parse(text);
 
       return (
         data?.detail ||
@@ -125,107 +283,144 @@ export default function ProjectPage() {
   };
 
   // ======================================================
-  // LOAD PROJECT
+  // LOAD
   // ======================================================
 
-  const loadData = useCallback(async () => {
-    if (!projectId) {
-      return;
-    }
+  const loadData = useCallback(
+    async (showLoader = true) => {
+      if (!projectId) return;
 
-    try {
-      setLoading(true);
-      setError("");
+      try {
+        if (showLoader) {
+          setLoading(true);
+        }
 
-      const [
-        projectResponse,
-        assetsResponse,
-        brandKitResponse,
-      ] = await Promise.all([
-        fetch(`${API}/projects/${projectId}`, {
-          cache: "no-store",
-        }),
-        fetch(`${API}/projects/${projectId}/assets`, {
-          cache: "no-store",
-        }),
-        fetch(`${API}/projects/${projectId}/brand-kit`, {
-          cache: "no-store",
-        }),
-      ]);
+        setError("");
 
-      if (!projectResponse.ok) {
-        throw new Error(
-          await getErrorMessage(
-            projectResponse,
-            "Could not load project."
-          )
+        const [
+          projectResponse,
+          assetsResponse,
+          brandKitResponse,
+        ] = await Promise.all([
+          fetch(
+            `${API}/projects/${projectId}`,
+            {
+              cache: "no-store",
+            }
+          ),
+
+          fetch(
+            `${API}/projects/${projectId}/assets`,
+            {
+              cache: "no-store",
+            }
+          ),
+
+          fetch(
+            `${API}/projects/${projectId}/brand-kit`,
+            {
+              cache: "no-store",
+            }
+          ),
+        ]);
+
+        if (!projectResponse.ok) {
+          throw new Error(
+            await getErrorMessage(
+              projectResponse,
+              "Could not load project."
+            )
+          );
+        }
+
+        if (!assetsResponse.ok) {
+          throw new Error(
+            await getErrorMessage(
+              assetsResponse,
+              "Could not load assets."
+            )
+          );
+        }
+
+        if (!brandKitResponse.ok) {
+          throw new Error(
+            await getErrorMessage(
+              brandKitResponse,
+              "Could not load brand kit."
+            )
+          );
+        }
+
+        const projectData: ProjectResponse =
+          await projectResponse.json();
+
+        const assetsData: AssetsResponse =
+          await assetsResponse.json();
+
+        const brandKitData: BrandKitResponse =
+          await brandKitResponse.json();
+
+        setProject(
+          projectData.project
         );
-      }
 
-      if (!assetsResponse.ok) {
-        throw new Error(
-          await getErrorMessage(
-            assetsResponse,
-            "Could not load assets."
-          )
+        setAssets(
+          assetsData.assets ?? []
         );
-      }
 
-      if (!brandKitResponse.ok) {
-        throw new Error(
-          await getErrorMessage(
-            brandKitResponse,
-            "Could not load brand kit."
-          )
+        setBrandKit(
+          brandKitData.brand_kit ?? null
         );
+      } catch (err) {
+        console.error(
+          "Load project error:",
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Could not load project."
+        );
+      } finally {
+        if (showLoader) {
+          setLoading(false);
+        }
       }
-
-      const projectData: ProjectResponse =
-        await projectResponse.json();
-
-      const assetsData: AssetsResponse =
-        await assetsResponse.json();
-
-      const brandKitData: BrandKitResponse =
-        await brandKitResponse.json();
-
-      setProject(projectData.project);
-      setAssets(assetsData.assets ?? []);
-      setBrandKit(brandKitData.brand_kit ?? null);
-    } catch (err) {
-      console.error("Load project error:", err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not load project."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
+    },
+    [projectId]
+  );
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
   // ======================================================
-  // GENERATE MORE LOGOS
+  // GENERATE MORE
   // ======================================================
 
   async function generateMore() {
-    if (!projectId || generating) {
+    if (
+      !projectId ||
+      generating ||
+      selectingLogo
+    ) {
       return;
     }
 
     try {
       setGenerating(true);
       setError("");
+      setSuccessMessage("");
 
       const response = await fetch(
         `${API}/projects/${projectId}/generate-logo`,
         {
           method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
         }
       );
 
@@ -241,14 +436,31 @@ export default function ProjectPage() {
       const data: GenerateLogoResponse =
         await response.json();
 
-      const concepts = data.concepts ?? [];
+      const concepts =
+        data.concepts ?? [];
 
-      setAssets((previous) => [
-        ...concepts,
-        ...previous,
-      ]);
+      if (concepts.length === 0) {
+        throw new Error(
+          "The server returned no logo concepts."
+        );
+      }
+
+      // Reload because backend asset ordering is newest first.
+      // We sort explicitly below.
+      await loadData(false);
+
+      setSuccessMessage(
+        `${concepts.length} new logo concept${
+          concepts.length === 1
+            ? ""
+            : "s"
+        } created locally.`
+      );
     } catch (err) {
-      console.error("Generate logo error:", err);
+      console.error(
+        "Generate logo error:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -264,19 +476,30 @@ export default function ProjectPage() {
   // SELECT LOGO
   // ======================================================
 
-  async function selectLogo(logoId: string) {
-    if (!projectId || selectingLogo) {
+  async function selectLogo(
+    logoId: string
+  ) {
+    if (
+      !projectId ||
+      selectingLogo ||
+      generating
+    ) {
       return;
     }
 
     try {
       setSelectingLogo(logoId);
       setError("");
+      setSuccessMessage("");
 
       const response = await fetch(
         `${API}/projects/${projectId}/logos/${logoId}/select`,
         {
           method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
         }
       );
 
@@ -292,31 +515,22 @@ export default function ProjectPage() {
       const data: SelectLogoResponse =
         await response.json();
 
-      setAssets((previous) => {
-        const updated = previous
-          .filter(
-            (asset) =>
-              !data.video ||
-              asset.id !== data.video.id
-          )
-          .map((asset) => ({
-            ...asset,
-            is_selected:
-              asset.asset_type === "logo"
-                ? asset.id === logoId
-                : asset.is_selected,
-          }));
+      setBrandKit(
+        data.brand_kit
+      );
 
-        if (data.video) {
-          return [data.video, ...updated];
-        }
+      await loadData(false);
 
-        return updated;
-      });
-
-      setBrandKit(data.brand_kit);
+      setSuccessMessage(
+        data.video
+          ? "Brand identity and promotional video created."
+          : "Brand identity created successfully."
+      );
     } catch (err) {
-      console.error("Select logo error:", err);
+      console.error(
+        "Select logo error:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -332,36 +546,60 @@ export default function ProjectPage() {
   // DERIVED DATA
   // ======================================================
 
-  const logos = useMemo(
-    () =>
-      assets.filter(
-        (asset) => asset.asset_type === "logo"
-      ),
-    [assets]
-  );
+  const logos = useMemo(() => {
+    return assets
+      .filter(
+        (asset) =>
+          asset.asset_type === "logo"
+      )
+      .slice()
+      .sort(
+        (a, b) =>
+          dateValue(a.created_at) -
+          dateValue(b.created_at)
+      );
+  }, [assets]);
 
-  const videos = useMemo(
-    () =>
-      assets.filter(
-        (asset) => asset.asset_type === "video"
-      ),
-    [assets]
-  );
-
-  const visibleLogos = useMemo(
-    () => logos.slice(0, 3),
-    [logos]
-  );
+  const videos = useMemo(() => {
+    return assets
+      .filter(
+        (asset) =>
+          asset.asset_type === "video"
+      )
+      .slice()
+      .sort(
+        (a, b) =>
+          dateValue(a.created_at) -
+          dateValue(b.created_at)
+      );
+  }, [assets]);
 
   const selectedLogo = useMemo(
     () =>
-      logos.find((logo) => logo.is_selected) ??
-      null,
+      logos.find(
+        (logo) => logo.is_selected
+      ) ?? null,
     [logos]
   );
 
   const latestVideo =
-    videos.length > 0 ? videos[0] : null;
+    videos.length > 0
+      ? videos[videos.length - 1]
+      : null;
+
+  const displayedBrandPalette =
+    useMemo(() => {
+      if (!brandKit) return null;
+
+      return cleanPalette({
+        primary_color:
+          brandKit.primary_color,
+        secondary_color:
+          brandKit.secondary_color,
+        accent_color:
+          brandKit.accent_color,
+      });
+    }, [brandKit]);
 
   // ======================================================
   // LOADING
@@ -369,12 +607,20 @@ export default function ProjectPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        <div className="text-center">
-          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-slate-700 border-t-violet-500" />
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f7f7fb]">
+        <div className="absolute -left-40 top-20 h-[500px] w-[500px] rounded-full bg-violet-300/20 blur-[130px]" />
 
-          <p className="mt-4 text-sm text-slate-400">
-            Preparing your brand...
+        <div className="absolute -right-40 bottom-10 h-[500px] w-[500px] rounded-full bg-blue-200/25 blur-[130px]" />
+
+        <div className="relative text-center">
+          <div className="studio-spinner mx-auto h-9 w-9 rounded-full border-[3px] border-violet-100 border-t-violet-600" />
+
+          <p className="mt-4 text-sm font-medium text-zinc-600">
+            Preparing your brand studio...
+          </p>
+
+          <p className="mt-1 text-xs text-zinc-400">
+            Loading identity and creative assets
           </p>
         </div>
       </main>
@@ -387,17 +633,28 @@ export default function ProjectPage() {
 
   if (!project) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-4 text-white">
-        <p className="text-red-400">
-          {error || "Project not found."}
-        </p>
+      <main className="flex min-h-screen items-center justify-center bg-[#f7f7fb] px-6">
+        <div className="max-w-md rounded-3xl border border-zinc-200 bg-white p-8 text-center shadow-xl">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 font-semibold text-red-600">
+            !
+          </div>
 
-        <Link
-          href="/dashboard"
-          className="mt-5 text-violet-400 transition hover:text-violet-300"
-        >
-          ← Back to Dashboard
-        </Link>
+          <h1 className="mt-5 text-xl font-semibold text-zinc-950">
+            Project unavailable
+          </h1>
+
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            {error ||
+              "This project could not be found."}
+          </p>
+
+          <Link
+            href="/dashboard"
+            className="mt-6 inline-flex rounded-xl bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white"
+          >
+            Back to dashboard
+          </Link>
+        </div>
       </main>
     );
   }
@@ -407,494 +664,848 @@ export default function ProjectPage() {
   // ======================================================
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      {/* NAVIGATION */}
+    <main className="relative min-h-screen overflow-hidden bg-[#f7f7fb] text-zinc-900">
+      {/* Background */}
 
-      <nav className="border-b border-slate-800">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <Link
-            href="/"
-            className="text-xl font-bold text-violet-400"
-          >
-            BrandAI
-          </Link>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="absolute -left-52 top-24 h-[620px] w-[620px] rounded-full bg-violet-300/15 blur-[150px]" />
 
-          <Link
-            href="/dashboard"
-            className="text-sm text-slate-400 transition hover:text-white"
-          >
-            ← Dashboard
-          </Link>
-        </div>
-      </nav>
+        <div className="absolute -right-52 top-[500px] h-[650px] w-[650px] rounded-full bg-blue-200/20 blur-[160px]" />
 
-      <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        {/* PROJECT HEADER */}
+        <div className="absolute bottom-[400px] left-[25%] h-[600px] w-[700px] rounded-full bg-fuchsia-200/10 blur-[160px]" />
+      </div>
 
-        <div className="mb-8">
-          <span className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-medium capitalize text-violet-400">
-            {project.industry}
-          </span>
+      {/* Navigation */}
 
-          <h1 className="mt-4 text-3xl font-bold sm:text-4xl">
-            {project.business_name}
-          </h1>
+      <header className="sticky top-0 z-40 border-b border-white/80 bg-white/75 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
+          <div className="flex items-center gap-6">
+            <Link
+              href="/"
+              className="flex items-center gap-2.5"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-950 text-sm font-bold text-white">
+                B
+              </div>
 
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:text-base">
-            {project.description}
-          </p>
+              <span className="hidden text-[15px] font-semibold tracking-tight sm:block">
+                BrandAI
+              </span>
+            </Link>
 
-          <p className="mt-3 text-sm text-slate-500">
-            Brand style:{" "}
-            <span className="font-medium capitalize text-slate-300">
-              {project.style}
-            </span>
-          </p>
-        </div>
+            <div className="hidden h-5 w-px bg-zinc-200 sm:block" />
 
-        {/* ERROR */}
+            <div className="hidden items-center gap-2 text-sm sm:flex">
+              <Link
+                href="/dashboard"
+                className="text-zinc-400 transition hover:text-zinc-900"
+              >
+                Projects
+              </Link>
 
-        {error && (
-          <div
-            role="alert"
-            className="mb-6 rounded-xl border border-red-800 bg-red-950/40 p-4 text-sm text-red-300"
-          >
-            {error}
-          </div>
-        )}
+              <span className="text-zinc-300">
+                /
+              </span>
 
-        {/* BRAND INTELLIGENCE */}
-
-        {brandKit && (
-          <section className="mb-6 rounded-2xl border border-violet-500/20 bg-slate-900 p-5 sm:p-6">
-            <p className="text-xs font-bold tracking-wide text-violet-400">
-              LOCAL AI BRAND STRATEGY
-            </p>
-
-            <h2 className="mt-1 text-xl font-bold sm:text-2xl">
-              Brand Intelligence
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Generated locally from your company
-              information using Ollama.
-            </p>
-
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <StrategyCard title="Slogan">
-                <p className="text-lg font-semibold text-white">
-                  &ldquo;
-                  {brandKit.slogan ||
-                    "Building a better brand."}
-                  &rdquo;
-                </p>
-              </StrategyCard>
-
-              <StrategyCard title="Brand Personality">
-                <div className="flex flex-wrap gap-2">
-                  {brandKit.personality?.length > 0 ? (
-                    brandKit.personality.map(
-                      (trait, index) => (
-                        <span
-                          key={`${trait}-${index}`}
-                          className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-300"
-                        >
-                          {trait}
-                        </span>
-                      )
-                    )
-                  ) : (
-                    <p className="text-sm text-slate-400">
-                      Professional
-                    </p>
-                  )}
-                </div>
-              </StrategyCard>
-
-              <StrategyCard title="Target Audience">
-                <p className="text-sm leading-6 text-slate-300">
-                  {brandKit.target_audience ||
-                    "Target customer information"}
-                </p>
-              </StrategyCard>
-
-              <StrategyCard title="Tone of Voice">
-                <p className="text-sm leading-6 text-slate-300">
-                  {brandKit.tone ||
-                    "Professional and approachable"}
-                </p>
-              </StrategyCard>
-
-              <StrategyCard title="Typography">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-slate-500">
-                      Heading
-                    </p>
-
-                    <p className="mt-1 text-sm font-semibold">
-                      {brandKit.heading_font ||
-                        "Montserrat"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-slate-500">
-                      Body
-                    </p>
-
-                    <p className="mt-1 text-sm font-semibold">
-                      {brandKit.body_font || "Inter"}
-                    </p>
-                  </div>
-                </div>
-              </StrategyCard>
-
-              <StrategyCard title="Marketing Message">
-                <p className="text-sm leading-6 text-slate-300">
-                  {brandKit.marketing_message ||
-                    "Your brand marketing message."}
-                </p>
-              </StrategyCard>
+              <span className="max-w-48 truncate font-medium text-zinc-700">
+                {project.business_name}
+              </span>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              Dashboard
+            </Link>
+
+            <Link
+              href="/create"
+              className="rounded-lg bg-zinc-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            >
+              + New brand
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <div className="relative z-10 mx-auto max-w-7xl px-6 py-10 lg:px-8">
+        {/* Heading */}
+
+        <section className="flex flex-col justify-between gap-7 border-b border-zinc-200/80 pb-9 lg:flex-row lg:items-end">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-zinc-200 bg-white/80 px-3 py-1 text-xs font-medium text-zinc-500 shadow-sm">
+                {formatLabel(
+                  project.industry
+                )}
+              </span>
+
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                {formatLabel(
+                  project.style
+                )}
+              </span>
+
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                Local AI
+              </span>
+
+              {selectedLogo && (
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                  ✓ Identity selected
+                </span>
+              )}
+            </div>
+
+            <h1 className="mt-5 text-4xl font-semibold tracking-[-0.045em] text-zinc-950 sm:text-5xl">
+              {project.business_name}
+            </h1>
+
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-500 sm:text-base">
+              {project.description}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={generateMore}
+            disabled={
+              generating ||
+              selectingLogo !== null
+            }
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
+          >
+            {generating ? (
+              <>
+                <span className="studio-spinner h-4 w-4 rounded-full border-2 border-zinc-200 border-t-violet-600" />
+                Creating concepts...
+              </>
+            ) : (
+              <>
+                ↻ Generate more
+              </>
+            )}
+          </button>
+        </section>
+
+        {/* Messages */}
+
+        {(error ||
+          successMessage) && (
+          <section className="mt-6">
+            {error && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
+
+            {successMessage && (
+              <div
+                role="status"
+                className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm text-emerald-700"
+              >
+                ✓ {successMessage}
+              </div>
+            )}
           </section>
         )}
 
-        {/* LOGO CONCEPTS */}
+        {/* Logo studio */}
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <section className="py-10">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div>
-              <p className="text-xs font-bold tracking-wide text-violet-400">
-                BRAND CONCEPTS
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-600">
+                Creative directions
               </p>
 
-              <h2 className="mt-1 text-xl font-bold sm:text-2xl">
-                Choose Your Identity
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.025em] text-zinc-950">
+                Explore your logo concepts
               </h2>
 
-              <p className="mt-2 text-sm text-slate-400">
-                Select one logo to automatically complete
-                your final palette and video.
+              <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-500">
+                Every direction explores a
+                different identity approach.
+                Choose the strongest fit for
+                your business.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={generateMore}
-              disabled={generating || selectingLogo !== null}
-              className="shrink-0 rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-semibold transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {generating
-                ? "Generating..."
-                : "Generate 3 More"}
-            </button>
+            {logos.length > 0 && (
+              <span className="text-xs font-medium text-zinc-400">
+                {logos.length} concept
+                {logos.length === 1
+                  ? ""
+                  : "s"}
+              </span>
+            )}
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {visibleLogos.map((logo, index) => (
-              <article
-                key={logo.id}
-                className={`overflow-hidden rounded-xl border transition ${
-                  logo.is_selected
-                    ? "border-emerald-400 bg-emerald-500/5"
-                    : "border-slate-700 bg-slate-950"
-                }`}
-              >
-                <div className="relative flex h-52 items-center justify-center bg-white p-4 sm:h-56">
-                  <img
-                    src={logo.url}
-                    alt={`${project.business_name} logo concept ${
-                      index + 1
-                    }`}
-                    loading="lazy"
-                    className="h-full w-full object-contain"
-                  />
+          {generating && (
+            <div className="mt-6 overflow-hidden rounded-2xl border border-violet-100 bg-white/80 p-5 shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="studio-spinner h-6 w-6 shrink-0 rounded-full border-[3px] border-violet-100 border-t-violet-600" />
 
-                  {logo.is_selected && (
-                    <span className="absolute right-2 top-2 rounded-full bg-emerald-500 px-2.5 py-1 text-[10px] font-bold text-white">
-                      ✓ SELECTED
-                    </span>
-                  )}
-                </div>
-
-                <div className="p-4">
-                  <p className="text-sm font-semibold text-slate-300">
-                    Concept {index + 1}
+                <div>
+                  <p className="text-sm font-semibold text-zinc-800">
+                    Developing three new
+                    directions
                   </p>
 
-                  {logo.palette && (
-                    <div className="mt-3">
-                      <p className="mb-2 text-[10px] font-semibold tracking-wider text-slate-500">
-                        COLOR PALETTE
-                      </p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-500">
+                    Ollama is creating the
+                    design specifications and
+                    the local renderer is
+                    building your logos.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          logo.palette.primary_color,
-                          logo.palette.secondary_color,
-                          logo.palette.accent_color,
-                        ].map((color, colorIndex) => (
-                          <div
-                            key={`${color}-${colorIndex}`}
-                          >
-                            <div
-                              className="h-7 rounded-md border border-white/10"
-                              style={{
-                                backgroundColor: color,
-                              }}
-                            />
+          {/* Logo grid */}
 
-                            <p className="mt-1 text-center font-mono text-[9px] text-slate-500">
-                              {color}
+          {logos.length > 0 ? (
+            <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {logos.map(
+                (logo, index) => {
+                  const selected =
+                    logo.is_selected;
+
+                  const selecting =
+                    selectingLogo ===
+                    logo.id;
+
+                  const direction =
+                    getDirection(index);
+
+                  const palette =
+                    cleanPalette(
+                      logo.palette
+                    );
+
+                  return (
+                    <article
+                      key={logo.id}
+                      className={`group overflow-hidden rounded-[22px] border bg-white/95 transition duration-300 ${
+                        selected
+                          ? "border-violet-400 shadow-[0_18px_50px_rgba(124,58,237,0.13)] ring-2 ring-violet-500/10"
+                          : "border-white/90 shadow-[0_4px_20px_rgba(24,24,27,0.04)] hover:-translate-y-1 hover:border-zinc-200 hover:shadow-[0_22px_55px_rgba(24,24,27,0.08)]"
+                      }`}
+                    >
+                      {/* Canvas */}
+
+                      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-[#fafafa] p-8">
+                        <div className="absolute inset-0 opacity-[0.028] [background-image:linear-gradient(#000_1px,transparent_1px),linear-gradient(90deg,#000_1px,transparent_1px)] [background-size:20px_20px]" />
+
+                        <span className="absolute left-4 top-4 z-10 rounded-full border border-zinc-200 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-zinc-500 shadow-sm">
+                          {String(
+                            index + 1
+                          ).padStart(
+                            2,
+                            "0"
+                          )}
+                        </span>
+
+                        {selected && (
+                          <span className="absolute right-4 top-4 z-10 rounded-full bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white">
+                            ✓ Selected
+                          </span>
+                        )}
+
+                        <img
+                          src={getAssetUrl(
+                            logo.url
+                          )}
+                          alt={`${project.business_name} ${direction.name} logo`}
+                          loading="lazy"
+                          className="relative z-10 max-h-full max-w-full object-contain transition duration-300 group-hover:scale-[1.02]"
+                        />
+                      </div>
+
+                      {/* Info */}
+
+                      <div className="border-t border-zinc-100 p-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-zinc-950">
+                              {
+                                direction.name
+                              }
+                            </p>
+
+                            <p className="mt-1 max-w-[230px] text-xs leading-5 text-zinc-400">
+                              {
+                                direction.description
+                              }
                             </p>
                           </div>
-                        ))}
+
+                          {palette && (
+                            <div className="flex -space-x-1">
+                              {[
+                                palette.primary_color,
+                                palette.secondary_color,
+                                palette.accent_color,
+                              ].map(
+                                (
+                                  color,
+                                  colorIndex
+                                ) => (
+                                  <div
+                                    key={`${color}-${colorIndex}`}
+                                    title={
+                                      color
+                                    }
+                                    className="h-6 w-6 rounded-full border-2 border-white shadow-sm"
+                                    style={{
+                                      backgroundColor:
+                                        safeColor(
+                                          color
+                                        ),
+                                    }}
+                                  />
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {palette && (
+                          <div className="mt-4 grid grid-cols-3 gap-2">
+                            {[
+                              palette.primary_color,
+                              palette.secondary_color,
+                              palette.accent_color,
+                            ].map(
+                              (
+                                color,
+                                colorIndex
+                              ) => (
+                                <div
+                                  key={`${color}-value-${colorIndex}`}
+                                >
+                                  <div
+                                    className="h-1.5 rounded-full"
+                                    style={{
+                                      backgroundColor:
+                                        safeColor(
+                                          color
+                                        ),
+                                    }}
+                                  />
+
+                                  <p className="mt-1.5 truncate text-center font-mono text-[9px] uppercase text-zinc-400">
+                                    {
+                                      color
+                                    }
+                                  </p>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            selectLogo(
+                              logo.id
+                            )
+                          }
+                          disabled={
+                            selected ||
+                            selectingLogo !==
+                              null ||
+                            generating
+                          }
+                          className={`mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition ${
+                            selected
+                              ? "bg-violet-50 text-violet-700"
+                              : "bg-zinc-950 text-white hover:bg-zinc-800"
+                          } disabled:cursor-not-allowed`}
+                        >
+                          {selecting && (
+                            <span className="studio-spinner h-4 w-4 rounded-full border-2 border-white/30 border-t-white" />
+                          )}
+
+                          {selecting
+                            ? "Building identity..."
+                            : selected
+                              ? "✓ Selected direction"
+                              : "Choose this direction"}
+                        </button>
                       </div>
-                    </div>
-                  )}
+                    </article>
+                  );
+                }
+              )}
+            </div>
+          ) : (
+            <div className="mt-7 rounded-[22px] border border-dashed border-violet-200 bg-white/70 px-6 py-16 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-lg text-violet-600">
+                ◇
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => selectLogo(logo.id)}
-                    disabled={
-                      logo.is_selected ||
-                      selectingLogo !== null ||
-                      generating
-                    }
-                    className={`mt-4 w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
-                      logo.is_selected
-                        ? "bg-emerald-500/15 text-emerald-300"
-                        : "bg-violet-600 hover:bg-violet-500"
-                    } disabled:cursor-not-allowed disabled:opacity-70`}
-                  >
-                    {logo.is_selected
-                      ? "✓ Selected"
-                      : selectingLogo === logo.id
-                        ? "Preparing Brand..."
-                        : "Choose Logo"}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
+              <h3 className="mt-5 text-base font-semibold text-zinc-900">
+                No logo concepts yet
+              </h3>
 
-          {visibleLogos.length === 0 && (
-            <div className="mt-6 flex h-44 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950">
-              <p className="text-sm text-slate-500">
-                No logo concepts available.
+              <p className="mt-2 text-sm text-zinc-500">
+                Generate your first three
+                local AI logo directions.
               </p>
+
+              <button
+                type="button"
+                onClick={generateMore}
+                disabled={generating}
+                className="mt-6 rounded-xl bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white"
+              >
+                Generate logo concepts
+              </button>
+            </div>
+          )}
+
+          {logos.length > 0 && (
+            <div className="mt-7 text-center">
+              <button
+                type="button"
+                onClick={generateMore}
+                disabled={
+                  generating ||
+                  selectingLogo !== null
+                }
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-600 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {generating ? (
+                  <>
+                    <span className="studio-spinner h-4 w-4 rounded-full border-2 border-zinc-200 border-t-violet-600" />
+                    Developing concepts...
+                  </>
+                ) : (
+                  <>
+                    ↻ Explore more
+                    directions
+                  </>
+                )}
+              </button>
             </div>
           )}
         </section>
 
-        {/* FINAL BRAND */}
+        {/* Selection instruction */}
 
-        {selectedLogo && (
-          <section className="mt-6">
-            <div className="mb-4">
-              <p className="text-xs font-bold tracking-wide text-emerald-400">
-                FINAL BRAND IDENTITY
-              </p>
+        {!selectedLogo &&
+          logos.length > 0 && (
+            <section className="mb-10 rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/80 to-blue-50/60 p-6">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                <div>
+                  <p className="text-sm font-semibold text-zinc-900">
+                    Ready to build your
+                    brand system?
+                  </p>
 
-              <h2 className="mt-1 text-2xl font-bold">
-                Your Brand
-              </h2>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {/* SELECTED LOGO */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">
-                    Selected Logo
-                  </h3>
-
-                  <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400">
-                    READY
-                  </span>
+                  <p className="mt-1 text-sm leading-6 text-zinc-500">
+                    Choose one direction to
+                    finalize your palette,
+                    messaging, typography and
+                    promotional assets.
+                  </p>
                 </div>
 
-                <div className="mt-4 flex h-64 items-center justify-center rounded-xl bg-white p-4">
+                <span className="shrink-0 text-sm font-semibold text-violet-600">
+                  Choose a concept ↑
+                </span>
+              </div>
+            </section>
+          )}
+
+        {/* Selected brand */}
+
+        {selectedLogo && (
+          <section className="border-t border-zinc-200/80 py-10">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Brand identity
+            </div>
+
+            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.035em] text-zinc-950">
+              Your brand system
+            </h2>
+
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+              Your selected direction has
+              been developed into a complete
+              identity system.
+            </p>
+
+            {/* Logo + palette */}
+
+            <div className="mt-8 grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
+              <StudioCard
+                title="Primary logo"
+                badge="Selected"
+              >
+                <div className="flex min-h-[330px] items-center justify-center bg-[#fafafa] p-10">
                   <img
-                    src={selectedLogo.url}
+                    src={getAssetUrl(
+                      selectedLogo.url
+                    )}
                     alt={`${project.business_name} selected logo`}
-                    className="h-full w-full object-contain"
+                    className="max-h-[240px] max-w-full object-contain"
                   />
                 </div>
 
-                <a
-                  href={selectedLogo.url}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 block rounded-lg border border-slate-700 py-2.5 text-center text-sm font-semibold transition hover:border-violet-500 hover:text-violet-300"
-                >
-                  ↓ Download Logo
-                </a>
-              </div>
+                <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-4">
+                  <p className="text-xs text-zinc-400">
+                    Primary identity asset
+                  </p>
 
-              {/* PALETTE */}
+                  <a
+                    href={getAssetUrl(
+                      selectedLogo.url
+                    )}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  >
+                    ↓ Download PNG
+                  </a>
+                </div>
+              </StudioCard>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                <h3 className="font-semibold">
-                  Brand Color Palette
-                </h3>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  Extracted automatically from your
-                  selected logo.
-                </p>
-
-                {brandKit ? (
-                  <div className="mt-4 space-y-3">
+              <StudioCard title="Color palette">
+                {displayedBrandPalette ? (
+                  <div className="space-y-3 p-5">
                     <ColorCard
                       label="Primary"
-                      color={brandKit.primary_color}
+                      color={
+                        displayedBrandPalette.primary_color
+                      }
                     />
 
                     <ColorCard
                       label="Secondary"
-                      color={brandKit.secondary_color}
+                      color={
+                        displayedBrandPalette.secondary_color
+                      }
                     />
 
                     <ColorCard
                       label="Accent"
-                      color={brandKit.accent_color}
+                      color={
+                        displayedBrandPalette.accent_color
+                      }
                     />
+
+                    <p className="pt-2 text-xs leading-5 text-zinc-400">
+                      Click a color to copy
+                      its HEX value.
+                    </p>
                   </div>
                 ) : (
-                  <div className="mt-4 flex h-48 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950">
-                    <p className="text-sm text-slate-500">
-                      Preparing palette...
+                  <div className="flex min-h-[300px] items-center justify-center">
+                    <p className="text-sm text-zinc-400">
+                      Preparing brand
+                      colors...
                     </p>
                   </div>
                 )}
-              </div>
+              </StudioCard>
             </div>
-          </section>
-        )}
 
-        {/* PROMOTIONAL VIDEO */}
+            {/* Intelligence */}
 
-        {selectedLogo && (
-          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
-            <p className="text-xs font-bold tracking-wide text-fuchsia-400">
-              PROMOTIONAL VIDEO
-            </p>
-
-            <h2 className="mt-1 text-xl font-bold">
-              Brand Animation
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Automatically created using your selected
-              brand identity.
-            </p>
-
-            {selectingLogo && (
-              <div className="mt-5 flex items-center gap-3 text-sm text-slate-400">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-fuchsia-500" />
-                Generating promotional video...
-              </div>
-            )}
-
-            {latestVideo ? (
-              <div className="mt-5 max-w-xl">
-                <video
-                  key={latestVideo.url}
-                  autoPlay
-                  muted
-                  loop
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="max-h-[420px] w-full rounded-xl border border-slate-800 bg-black object-contain"
-                >
-                  <source
-                    src={latestVideo.url}
-                    type="video/mp4"
-                  />
-
-                  Your browser does not support video.
-                </video>
-
-                <a
-                  href={latestVideo.url}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 block rounded-lg bg-fuchsia-600 py-2.5 text-center text-sm font-semibold transition hover:bg-fuchsia-500"
-                >
-                  ↓ Download Video
-                </a>
-              </div>
-            ) : (
-              !selectingLogo && (
-                <div className="mt-5 flex h-48 max-w-xl items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950">
-                  <p className="text-sm text-slate-500">
-                    Video is being prepared.
+            {brandKit && (
+              <>
+                <div className="mt-10">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-600">
+                    Brand intelligence
                   </p>
+
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">
+                    Strategy & personality
+                  </h2>
                 </div>
-              )
+
+                <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                  <StrategyCard title="Brand personality">
+                    {brandKit.personality
+                      ?.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {brandKit.personality.map(
+                          (
+                            trait,
+                            index
+                          ) => (
+                            <span
+                              key={`${trait}-${index}`}
+                              className="rounded-full border border-violet-100 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700"
+                            >
+                              {
+                                trait
+                              }
+                            </span>
+                          )
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-zinc-500">
+                        Professional
+                      </p>
+                    )}
+                  </StrategyCard>
+
+                  <StrategyCard title="Tone of voice">
+                    <p className="text-sm leading-7 text-zinc-600">
+                      {brandKit.tone ||
+                        "Professional and approachable"}
+                    </p>
+                  </StrategyCard>
+
+                  <StrategyCard title="Target audience">
+                    <p className="text-sm leading-7 text-zinc-600">
+                      {brandKit.target_audience ||
+                        "Target audience information will appear here."}
+                    </p>
+                  </StrategyCard>
+
+                  <StrategyCard title="Typography">
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                          Heading
+                        </p>
+
+                        <p className="mt-2 text-2xl font-semibold text-zinc-900">
+                          {brandKit.heading_font ||
+                            "Montserrat"}
+                        </p>
+
+                        <p className="mt-1 text-xs text-zinc-400">
+                          Aa Bb Cc 123
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                          Body
+                        </p>
+
+                        <p className="mt-2 text-xl text-zinc-800">
+                          {brandKit.body_font ||
+                            "Inter"}
+                        </p>
+
+                        <p className="mt-1 text-xs text-zinc-400">
+                          Aa Bb Cc 123
+                        </p>
+                      </div>
+                    </div>
+                  </StrategyCard>
+                </div>
+
+                {/* Messaging */}
+
+                <div className="relative mt-5 overflow-hidden rounded-[24px] bg-zinc-950 p-7 text-white shadow-xl sm:p-9">
+                  <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-violet-600/20 blur-[80px]" />
+
+                  <div className="relative">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-300">
+                      Brand messaging
+                    </p>
+
+                    {brandKit.slogan && (
+                      <h3 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] sm:text-4xl">
+                        “
+                        {
+                          brandKit.slogan
+                        }
+                        ”
+                      </h3>
+                    )}
+
+                    {brandKit.marketing_message && (
+                      <p className="mt-5 max-w-3xl text-sm leading-7 text-zinc-400 sm:text-base">
+                        {
+                          brandKit.marketing_message
+                        }
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Video */}
+
+            <div className="mt-10">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-600">
+                Promotional content
+              </p>
+
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">
+                Brand animation
+              </h2>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-[24px] border border-white/90 bg-white/90 shadow-[0_15px_45px_rgba(24,24,27,0.06)]">
+              {selectingLogo && (
+                <div className="flex min-h-[280px] items-center justify-center bg-zinc-950 p-8 text-center">
+                  <div>
+                    <div className="studio-spinner mx-auto h-8 w-8 rounded-full border-[3px] border-zinc-700 border-t-fuchsia-400" />
+
+                    <p className="mt-4 text-sm font-semibold text-white">
+                      Creating brand
+                      animation...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!selectingLogo &&
+                latestVideo && (
+                  <>
+                    <div className="bg-zinc-950 p-4 sm:p-7">
+                      <video
+                        key={
+                          latestVideo.url
+                        }
+                        muted
+                        loop
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="mx-auto max-h-[620px] w-full rounded-xl bg-black object-contain"
+                      >
+                        <source
+                          src={getAssetUrl(
+                            latestVideo.url
+                          )}
+                          type="video/mp4"
+                        />
+
+                        Your browser does
+                        not support video
+                        playback.
+                      </video>
+                    </div>
+
+                    <div className="flex flex-col justify-between gap-3 border-t border-zinc-100 px-5 py-4 sm:flex-row sm:items-center">
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-800">
+                          Promotional brand
+                          video
+                        </p>
+
+                        <p className="mt-0.5 text-xs text-zinc-400">
+                          MP4 · Generated
+                          from selected
+                          identity
+                        </p>
+                      </div>
+
+                      <a
+                        href={getAssetUrl(
+                          latestVideo.url
+                        )}
+                        download
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-xl bg-zinc-950 px-4 py-2.5 text-center text-xs font-semibold text-white"
+                      >
+                        ↓ Download video
+                      </a>
+                    </div>
+                  </>
+                )}
+
+              {!selectingLogo &&
+                !latestVideo && (
+                  <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
+                    <div>
+                      <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
+                        ▶
+                      </div>
+
+                      <p className="mt-4 text-sm font-semibold text-zinc-800">
+                        Video not available
+                      </p>
+                    </div>
+                  </div>
+                )}
+            </div>
+
+            {/* Package */}
+
+            {brandKit && (
+              <div className="relative mt-8 overflow-hidden rounded-[24px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-violet-50 p-7 sm:p-8">
+                <div className="flex flex-col justify-between gap-7 lg:flex-row lg:items-center">
+                  <div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                      ↓
+                    </div>
+
+                    <h2 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950">
+                      Your complete brand
+                      package
+                    </h2>
+
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+                      Download your logo,
+                      promotional video,
+                      guidelines and
+                      structured brand data.
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <PackageBadge text="PNG Logo" />
+
+                      <PackageBadge text="MP4 Video" />
+
+                      <PackageBadge text="PDF Guidelines" />
+
+                      <PackageBadge text="JSON Data" />
+                    </div>
+                  </div>
+
+                  <a
+                    href={`${API}/projects/${projectId}/download-package`}
+                    className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                  >
+                    ↓ Download brand kit
+                  </a>
+                </div>
+              </div>
             )}
           </section>
         )}
 
-        {/* DOWNLOAD PACKAGE */}
+        {/* Summary */}
 
-        {selectedLogo && brandKit && (
-          <section className="mt-6 rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-950/30 to-slate-900 p-5 sm:p-6">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-bold tracking-wide text-emerald-400">
-                  BRAND PACKAGE
-                </p>
-
-                <h2 className="mt-1 text-xl font-bold">
-                  Download Complete Brand Kit
-                </h2>
-
-                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
-                  Download your selected logo,
-                  promotional video, brand guidelines
-                  PDF and structured brand information
-                  together in one ZIP file.
-                </p>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <PackageBadge text="PNG Logo" />
-                  <PackageBadge text="MP4 Video" />
-                  <PackageBadge text="PDF Guidelines" />
-                  <PackageBadge text="JSON Data" />
-                </div>
-              </div>
-
-              <a
-                href={`${API}/projects/${projectId}/download-package`}
-                className="shrink-0 rounded-lg bg-emerald-600 px-6 py-3 text-center text-sm font-semibold transition hover:bg-emerald-500"
-              >
-                ↓ Download Package
-              </a>
-            </div>
-          </section>
-        )}
-
-        {/* SUMMARY */}
-
-        <section className="mt-6 grid gap-3 sm:grid-cols-3">
+        <section className="grid gap-3 border-t border-zinc-200/80 py-8 sm:grid-cols-3">
           <SummaryCard
-            title="Logo Concepts"
+            title="Logo concepts"
             value={logos.length}
           />
 
           <SummaryCard
-            title="Brand Identity"
+            title="Brand identity"
             value={
               selectedLogo
                 ? "Selected ✓"
-                : "Choose logo"
+                : "Awaiting selection"
             }
           />
 
@@ -903,14 +1514,62 @@ export default function ProjectPage() {
             value={videos.length}
           />
         </section>
-      </section>
+      </div>
+
+      {/* Footer */}
+
+      <footer className="relative z-10 border-t border-white/80 bg-white/50 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 text-xs text-zinc-400 lg:px-8">
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-950 text-[9px] font-bold text-white">
+              B
+            </div>
+
+            <span>
+              BrandAI Studio
+            </span>
+          </div>
+
+          <span>
+            {project.business_name}
+          </span>
+        </div>
+      </footer>
     </main>
   );
 }
 
 // ======================================================
-// STRATEGY CARD
+// COMPONENTS
 // ======================================================
+
+function StudioCard({
+  title,
+  badge,
+  children,
+}: {
+  title: string;
+  badge?: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className="overflow-hidden rounded-[22px] border border-white/90 bg-white/95 shadow-[0_10px_35px_rgba(24,24,27,0.05)]">
+      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+        <h3 className="text-sm font-semibold text-zinc-900">
+          {title}
+        </h3>
+
+        {badge && (
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+            ✓ {badge}
+          </span>
+        )}
+      </div>
+
+      {children}
+    </article>
+  );
+}
 
 function StrategyCard({
   title,
@@ -920,19 +1579,15 @@ function StrategyCard({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <article className="rounded-[20px] border border-white/90 bg-white/90 p-6 shadow-[0_8px_30px_rgba(24,24,27,0.04)]">
+      <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
         {title}
       </p>
 
       {children}
-    </div>
+    </article>
   );
 }
-
-// ======================================================
-// COLOR CARD
-// ======================================================
 
 function ColorCard({
   label,
@@ -941,31 +1596,57 @@ function ColorCard({
   label: string;
   color: string;
 }) {
+  const [copied, setCopied] =
+    useState(false);
+
+  async function copyColor() {
+    try {
+      await navigator.clipboard.writeText(
+        color
+      );
+
+      setCopied(true);
+
+      window.setTimeout(
+        () => setCopied(false),
+        1200
+      );
+    } catch {
+      // Clipboard may be unavailable.
+    }
+  }
+
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+    <button
+      type="button"
+      onClick={copyColor}
+      className="group flex w-full items-center gap-4 rounded-xl border border-zinc-100 bg-white p-3 text-left transition hover:border-zinc-200 hover:bg-zinc-50"
+      title={`Copy ${color}`}
+    >
       <div
-        className="h-11 w-11 shrink-0 rounded-md border border-white/10"
+        className="h-12 w-12 shrink-0 rounded-xl border border-black/5 shadow-sm"
         style={{
-          backgroundColor: color,
+          backgroundColor:
+            safeColor(color),
         }}
       />
 
-      <div>
-        <p className="text-xs text-slate-500">
+      <div className="min-w-0">
+        <p className="text-[11px] font-medium text-zinc-400">
           {label}
         </p>
 
-        <p className="mt-0.5 font-mono text-sm font-semibold">
+        <p className="mt-1 font-mono text-sm font-semibold uppercase text-zinc-800">
           {color}
         </p>
       </div>
-    </div>
+
+      <span className="ml-auto text-[11px] font-medium text-zinc-400 transition group-hover:text-violet-600">
+        {copied ? "Copied ✓" : "Copy"}
+      </span>
+    </button>
   );
 }
-
-// ======================================================
-// PACKAGE BADGE
-// ======================================================
 
 function PackageBadge({
   text,
@@ -973,15 +1654,11 @@ function PackageBadge({
   text: string;
 }) {
   return (
-    <span className="rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1 text-[10px] font-medium text-slate-400">
+    <span className="rounded-lg border border-white bg-white/80 px-2.5 py-1.5 text-[10px] font-medium text-zinc-500 shadow-sm">
       {text}
     </span>
   );
 }
-
-// ======================================================
-// SUMMARY CARD
-// ======================================================
 
 function SummaryCard({
   title,
@@ -991,12 +1668,12 @@ function SummaryCard({
   value: string | number;
 }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
-      <p className="text-xs text-slate-500">
+    <div className="rounded-xl border border-white/90 bg-white/60 px-4 py-3.5 backdrop-blur">
+      <p className="text-[11px] text-zinc-400">
         {title}
       </p>
 
-      <p className="mt-1 font-semibold">
+      <p className="mt-1 text-sm font-semibold text-zinc-800">
         {value}
       </p>
     </div>
