@@ -54,6 +54,10 @@ from .models import (
     Project,
 )
 
+from .services.brand_evaluator import (
+    evaluate_brand,
+)
+
 from .services.brand_intelligence import (
     generate_brand_intelligence,
 )
@@ -2836,5 +2840,239 @@ def download_brand_package(
             detail=(
                 "Could not create "
                 "brand package."
+            ),
+        )
+        # =========================================================
+# AI BRAND SCORE
+# =========================================================
+
+@app.get(
+    "/projects/{project_id}/brand-score"
+)
+def get_brand_score(
+    project_id: str,
+
+    db: Session = Depends(
+        get_db
+    ),
+):
+
+    # =====================================================
+    # PROJECT
+    # =====================================================
+
+    project = (
+        db.query(
+            Project
+        )
+        .filter(
+            Project.id
+            == project_id
+        )
+        .first()
+    )
+
+
+    if not project:
+
+        raise HTTPException(
+            status_code=404,
+
+            detail=(
+                "Project not found."
+            ),
+        )
+
+
+    # =====================================================
+    # BRAND KIT
+    # =====================================================
+
+    brand_kit = (
+        db.query(
+            BrandKit
+        )
+        .filter(
+            BrandKit.project_id
+            == project.id
+        )
+        .first()
+    )
+
+
+    if not brand_kit:
+
+        raise HTTPException(
+            status_code=400,
+
+            detail=(
+                "Brand kit has not "
+                "been generated."
+            ),
+        )
+
+
+    # =====================================================
+    # SELECTED LOGO
+    # =====================================================
+
+    selected_logo = (
+        db.query(
+            Asset
+        )
+        .filter(
+            Asset.project_id
+            == project.id,
+
+            Asset.asset_type
+            == "logo",
+
+            Asset.is_selected.is_(
+                True
+            ),
+        )
+        .first()
+    )
+
+
+    # =====================================================
+    # PERSONALITY
+    # =====================================================
+
+    try:
+
+        personality = (
+            json.loads(
+                brand_kit.personality
+            )
+
+            if brand_kit.personality
+
+            else []
+        )
+
+
+        if not isinstance(
+            personality,
+            list,
+        ):
+
+            personality = []
+
+
+    except Exception:
+
+        personality = []
+
+
+    # =====================================================
+    # EVALUATE
+    # =====================================================
+
+    try:
+
+        evaluation = (
+            evaluate_brand(
+                business_name=(
+                    project.business_name
+                ),
+
+                industry=(
+                    project.industry
+                ),
+
+                description=(
+                    project.description
+                ),
+
+                style=(
+                    project.style
+                ),
+
+                slogan=(
+                    brand_kit.slogan
+                    or ""
+                ),
+
+                personality=(
+                    personality
+                ),
+
+                tone=(
+                    brand_kit.tone
+                    or ""
+                ),
+
+                target_audience=(
+                    brand_kit.target_audience
+                    or ""
+                ),
+
+                marketing_message=(
+                    brand_kit.marketing_message
+                    or ""
+                ),
+
+                heading_font=(
+                    brand_kit.heading_font
+                    or ""
+                ),
+
+                body_font=(
+                    brand_kit.body_font
+                    or ""
+                ),
+
+                primary_color=(
+                    brand_kit.primary_color
+                    or ""
+                ),
+
+                secondary_color=(
+                    brand_kit.secondary_color
+                    or ""
+                ),
+
+                accent_color=(
+                    brand_kit.accent_color
+                    or ""
+                ),
+
+                has_selected_logo=(
+                    selected_logo
+                    is not None
+                ),
+            )
+        )
+
+
+        return {
+            "project_id":
+                str(
+                    project.id
+                ),
+
+            "business_name":
+                project.business_name,
+
+            "brand_score":
+                evaluation,
+        }
+
+
+    except Exception as error:
+
+        print(
+            "[BRAND SCORE] Error:",
+            repr(error),
+        )
+
+
+        raise HTTPException(
+            status_code=500,
+
+            detail=(
+                "Could not evaluate "
+                "brand identity."
             ),
         )
