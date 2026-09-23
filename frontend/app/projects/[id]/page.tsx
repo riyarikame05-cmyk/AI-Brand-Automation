@@ -9,6 +9,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import BrandScorePanel from "../../components/BrandScorePanel";
 
 const API =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -256,6 +257,7 @@ export default function ProjectPage() {
 
   const [successMessage, setSuccessMessage] =
     useState("");
+    
 
   // ======================================================
   // ERROR HELPER
@@ -1316,7 +1318,7 @@ export default function ProjectPage() {
                   </StrategyCard>
                 </div>
 
-                {/* Messaging */}
+                                {/* Messaging */}
 
                 <div className="relative mt-5 overflow-hidden rounded-[24px] bg-zinc-950 p-7 text-white shadow-xl sm:p-9">
                   <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-violet-600/20 blur-[80px]" />
@@ -1328,24 +1330,24 @@ export default function ProjectPage() {
 
                     {brandKit.slogan && (
                       <h3 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] sm:text-4xl">
-                        “
-                        {
-                          brandKit.slogan
-                        }
-                        ”
+                        “{brandKit.slogan}”
                       </h3>
                     )}
 
                     {brandKit.marketing_message && (
                       <p className="mt-5 max-w-3xl text-sm leading-7 text-zinc-400 sm:text-base">
-                        {
-                          brandKit.marketing_message
-                        }
+                        {brandKit.marketing_message}
                       </p>
                     )}
                   </div>
                 </div>
               </>
+            )}
+
+            {/* AI Brand Score */}
+
+            {brandKit && projectId && (
+              <BrandScorePanel projectId={projectId} />
             )}
 
             {/* Video */}
@@ -1367,84 +1369,70 @@ export default function ProjectPage() {
                     <div className="studio-spinner mx-auto h-8 w-8 rounded-full border-[3px] border-zinc-700 border-t-fuchsia-400" />
 
                     <p className="mt-4 text-sm font-semibold text-white">
-                      Creating brand
-                      animation...
+                      Creating brand animation...
                     </p>
                   </div>
                 </div>
               )}
 
-              {!selectingLogo &&
-                latestVideo && (
-                  <>
-                    <div className="bg-zinc-950 p-4 sm:p-7">
-                      <video
-                        key={
-                          latestVideo.url
-                        }
-                        muted
-                        loop
-                        controls
-                        playsInline
-                        preload="metadata"
-                        className="mx-auto max-h-[620px] w-full rounded-xl bg-black object-contain"
-                      >
-                        <source
-                          src={getAssetUrl(
-                            latestVideo.url
-                          )}
-                          type="video/mp4"
-                        />
+              {!selectingLogo && latestVideo && (
+                <>
+                  <div className="bg-zinc-950 p-4 sm:p-7">
+                    <video
+                      key={latestVideo.url}
+                      muted
+                      loop
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="mx-auto max-h-[620px] w-full rounded-xl bg-black object-contain"
+                    >
+                      <source
+                        src={getAssetUrl(latestVideo.url)}
+                        type="video/mp4"
+                      />
 
-                        Your browser does
-                        not support video
-                        playback.
-                      </video>
-                    </div>
+                      Your browser does not support video playback.
+                    </video>
+                  </div>
 
-                    <div className="flex flex-col justify-between gap-3 border-t border-zinc-100 px-5 py-4 sm:flex-row sm:items-center">
-                      <div>
-                        <p className="text-sm font-semibold text-zinc-800">
-                          Promotional brand
-                          video
-                        </p>
-
-                        <p className="mt-0.5 text-xs text-zinc-400">
-                          MP4 · Generated
-                          from selected
-                          identity
-                        </p>
-                      </div>
-
-                      <a
-                        href={getAssetUrl(
-                          latestVideo.url
-                        )}
-                        download
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-xl bg-zinc-950 px-4 py-2.5 text-center text-xs font-semibold text-white"
-                      >
-                        ↓ Download video
-                      </a>
-                    </div>
-                  </>
-                )}
-
-              {!selectingLogo &&
-                !latestVideo && (
-                  <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
+                  <div className="flex flex-col justify-between gap-3 border-t border-zinc-100 px-5 py-4 sm:flex-row sm:items-center">
                     <div>
-                      <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
-                        ▶
-                      </div>
+                      <p className="text-sm font-semibold text-zinc-800">
+                        Promotional brand video
+                      </p>
 
-                      <p className="mt-4 text-sm font-semibold text-zinc-800">
-                        Video not available
+                      <p className="mt-0.5 text-xs text-zinc-400">
+                        MP4 · Generated from selected identity
                       </p>
                     </div>
+
+                    <a
+                      href={getAssetUrl(latestVideo.url)}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-xl bg-zinc-950 px-4 py-2.5 text-center text-xs font-semibold text-white"
+                    >
+                      ↓ Download video
+                    </a>
                   </div>
-                )}
+                </>
+              )}
+
+              {!selectingLogo && !latestVideo && (
+                <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
+                  <div>
+                    <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
+                      ▶
+                    </div>
+
+                    <p className="mt-4 text-sm font-semibold text-zinc-800">
+                      Video not available
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Package */}
