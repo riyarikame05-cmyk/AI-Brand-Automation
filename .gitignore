@@ -40,3 +40,28 @@ backend/renderer_tests/
 # FLUX test outputs
 backend/flux-final-test.png
 backend/flux-test.png
+
+# BrandAI local database
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+
+# Development backups
+*.backup
+*.before-*
+*.damaged-backup
+*.pre-logo-repair
+backend/repair_logo_section.py
+current-project-page.txt
+project-page-backup.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+backend/.env
+
+# Generated assets
+backend/generated/
