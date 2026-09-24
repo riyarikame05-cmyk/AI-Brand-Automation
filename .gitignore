@@ -65,3 +65,5 @@ backend/.env
 
 # Generated assets
 backend/generated/
+
+*.backup-*
