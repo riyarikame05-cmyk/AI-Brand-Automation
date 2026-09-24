@@ -774,26 +774,38 @@ export default function ProjectPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={generateMore}
-            disabled={
-              generating ||
-              selectingLogo !== null
-            }
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
-          >
-            {generating ? (
-              <>
-                <span className="studio-spinner h-4 w-4 rounded-full border-2 border-zinc-200 border-t-violet-600" />
-                Creating concepts...
-              </>
-            ) : (
-              <>
-                ↻ Generate more
-              </>
-            )}
-          </button>
+                    <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <Link
+              href={`/projects/${projectId}/tools`}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-700 hover:shadow-md"
+            >
+              <span>✦</span>
+              Creative Tools
+              <span>→</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={generateMore}
+              disabled={
+                generating ||
+                selectingLogo !== null
+              }
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
+            >
+              {generating ? (
+                <>
+                  <span className="studio-spinner h-4 w-4 rounded-full border-2 border-zinc-200 border-t-violet-600" />
+                  Creating concepts...
+                </>
+              ) : (
+                <>
+                  <span>↻</span>
+                  Generate more
+                </>
+              )}
+            </button>
+          </div>
         </section>
 
         {/* Messages */}

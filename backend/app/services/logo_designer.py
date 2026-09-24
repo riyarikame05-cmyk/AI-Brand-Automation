@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import random
 import uuid
@@ -71,13 +73,6 @@ SYMMETRY_TYPES = [
 # =========================================================
 # PROFESSIONAL CREATIVE DIRECTIONS
 # =========================================================
-#
-# IMPORTANT:
-# Each direction has a deliberately different structural
-# identity. This prevents batches from collapsing into
-# repeated polygon logos.
-#
-# =========================================================
 
 CREATIVE_DIRECTIONS = [
     {
@@ -99,7 +94,6 @@ CREATIVE_DIRECTIONS = [
         ],
         "preferred_layout": "symbol-top",
     },
-
     {
         "name": "negative-space",
         "description": (
@@ -119,7 +113,6 @@ CREATIVE_DIRECTIONS = [
         ],
         "preferred_layout": "symbol-left",
     },
-
     {
         "name": "monogram",
         "description": (
@@ -139,7 +132,6 @@ CREATIVE_DIRECTIONS = [
         ],
         "preferred_layout": "symbol-top",
     },
-
     {
         "name": "abstract-motion",
         "description": (
@@ -159,7 +151,6 @@ CREATIVE_DIRECTIONS = [
         ],
         "preferred_layout": "symbol-left",
     },
-
     {
         "name": "wordmark",
         "description": (
@@ -179,7 +170,6 @@ CREATIVE_DIRECTIONS = [
         ],
         "preferred_layout": "wordmark",
     },
-
     {
         "name": "brand-emblem",
         "description": (
@@ -200,6 +190,59 @@ CREATIVE_DIRECTIONS = [
         "preferred_layout": "emblem",
     },
 ]
+
+
+# =========================================================
+# NAMED UI PALETTES
+# =========================================================
+#
+# These names should correspond to the palette IDs used by
+# the frontend. Ollama still sees the semantic palette name,
+# but the sanitizer guarantees predictable colors.
+# =========================================================
+
+NAMED_PALETTES = {
+    "professional": {
+        "primary": "#172554",
+        "secondary": "#2563EB",
+        "accent": "#60A5FA",
+    },
+    "technology": {
+        "primary": "#312E81",
+        "secondary": "#6366F1",
+        "accent": "#22D3EE",
+    },
+    "luxury": {
+        "primary": "#171717",
+        "secondary": "#B68D40",
+        "accent": "#D4AF37",
+    },
+    "nature": {
+        "primary": "#14532D",
+        "secondary": "#16A34A",
+        "accent": "#84CC16",
+    },
+    "energetic": {
+        "primary": "#9A3412",
+        "secondary": "#F97316",
+        "accent": "#FACC15",
+    },
+    "ocean": {
+        "primary": "#164E63",
+        "secondary": "#0891B2",
+        "accent": "#67E8F9",
+    },
+    "warm": {
+        "primary": "#7C2D12",
+        "secondary": "#EA580C",
+        "accent": "#FDBA74",
+    },
+    "monochrome": {
+        "primary": "#18181B",
+        "secondary": "#52525B",
+        "accent": "#A1A1AA",
+    },
+}
 
 
 # =========================================================
@@ -250,15 +293,77 @@ def generate_logo_specification(
     style: str,
     description: str = "",
     direction_index: int | None = None,
+    palette_name: str = "",
+    custom_colors: list[str] | None = None,
+    creative_prompt: str = "",
 ) -> dict:
+    """
+    Generate one structured logo specification with Ollama.
+
+    User choices from the Create page are real generation
+    requirements:
+
+    - style
+    - named palette
+    - custom HEX colors
+    - creative prompt
+
+    Explicit custom colors have the highest color priority.
+    """
 
     if direction_index is None:
-        direction_index = random.randrange(len(CREATIVE_DIRECTIONS))
+        direction_index = random.randrange(
+            len(CREATIVE_DIRECTIONS)
+        )
 
-    direction_index = direction_index % len(CREATIVE_DIRECTIONS)
-    direction = CREATIVE_DIRECTIONS[direction_index]
+    direction_index = (
+        direction_index
+        % len(CREATIVE_DIRECTIONS)
+    )
 
-    generation_id = str(uuid.uuid4())
+    direction = (
+        CREATIVE_DIRECTIONS[
+            direction_index
+        ]
+    )
+
+    generation_id = str(
+        uuid.uuid4()
+    )
+
+    custom_colors = (
+        custom_colors
+        or []
+    )
+
+    palette_name = (
+        str(palette_name)
+        .strip()
+        .lower()
+    )
+
+    creative_prompt = (
+        str(creative_prompt)
+        .strip()
+    )
+
+    palette_instruction = (
+        palette_name
+        if palette_name
+        else "designer-selected"
+    )
+
+    custom_color_instruction = (
+        ", ".join(custom_colors)
+        if custom_colors
+        else "none"
+    )
+
+    creative_instruction = (
+        creative_prompt
+        if creative_prompt
+        else "No additional user direction."
+    )
 
     prompt = f"""
 You are a senior brand identity designer creating a professional
@@ -266,9 +371,12 @@ commercial logo system.
 
 Your job is to create ONE vector logo specification.
 
-A deterministic SVG renderer will turn your JSON into artwork.
-Therefore describe a design that can actually be constructed from
-simple clean vector geometry.
+A deterministic SVG renderer can turn your JSON into artwork.
+A cloud image provider may also use the same specification to
+generate symbol artwork before deterministic typography is added.
+
+Therefore create a strong, practical design specification that works
+for both clean vector construction and professional symbol generation.
 
 ==================================================
 BUSINESS
@@ -280,11 +388,52 @@ Business name:
 Industry:
 {industry}
 
-Requested style:
+Requested logo style:
 {style}
 
-Business description and user preferences:
+Business description:
 {description}
+
+Selected color palette:
+{palette_instruction}
+
+User-selected custom HEX colors:
+{custom_color_instruction}
+
+Additional creative direction:
+{creative_instruction}
+
+==================================================
+USER REQUIREMENTS
+==================================================
+
+The requested logo style, selected palette, custom colors and
+additional creative direction are REAL USER REQUIREMENTS.
+
+They are not optional metadata.
+
+Respect the requested logo style while still following the assigned
+creative direction.
+
+If custom HEX colors are provided:
+- use them as the basis of the logo palette
+- preserve their intended visual hierarchy
+- do not replace them with unrelated colors
+
+If no custom colors are provided:
+- interpret the selected palette name semantically
+- select colors appropriate to that palette
+- keep strong contrast on a white background
+
+Use the additional creative direction to influence:
+- visual metaphor
+- composition
+- geometry
+- personality
+- typography feeling
+
+Do not follow a creative instruction that would violate basic logo
+production requirements such as readability or scalability.
 
 ==================================================
 ASSIGNED CREATIVE DIRECTION
@@ -312,12 +461,13 @@ Generation ID:
 DESIGN THINKING
 ==================================================
 
-First infer:
+Infer:
 
 1. What does this business actually offer?
 2. What should customers feel about it?
-3. What is one meaningful idea that could represent that value?
-4. How can that idea become a simple recognizable vector mark?
+3. What meaningful idea can represent that value?
+4. How can that idea become a simple recognizable mark?
+5. How should the requested style influence that mark?
 
 The symbol must have a reason to exist.
 
@@ -343,17 +493,18 @@ Only use a theme when it makes sense for this particular business.
 DISTINCTIVENESS
 ==================================================
 
-This logo is part of a batch containing other logo concepts.
+This logo belongs to a batch containing other concepts.
 
-This specific concept MUST follow the assigned creative direction.
+This concept MUST follow its assigned creative direction.
 
 Do not drift toward a generic technology hexagon.
 Do not create arbitrary overlapping polygons.
 Do not make every business look like a software startup.
-Do not default to blue unless blue genuinely suits the brand.
+Do not default to blue unless the selected palette or brand
+requirements call for blue.
 
-The logo should be distinguishable from the other concepts even
-when viewed only as a black silhouette.
+The logo should be distinguishable from other concepts even when
+viewed only as a black silhouette.
 
 ==================================================
 TYPOGRAPHY
@@ -369,6 +520,21 @@ the company name is the dominant design element.
 
 For geometric or abstract concepts:
 the symbol should complement the wordmark rather than overwhelm it.
+
+For luxury or elegant styles:
+prefer refined proportions, controlled spacing and sophisticated
+geometry rather than excessive ornament.
+
+For playful styles:
+allow friendlier proportions and rounded geometry while preserving
+professional readability.
+
+For corporate styles:
+prioritize stability, clarity and confidence.
+
+For futuristic styles:
+use disciplined contemporary geometry rather than generic sci-fi
+decoration.
 
 Do not use extremely thin or low-contrast lettering.
 
@@ -401,7 +567,7 @@ Never use:
 - glass effects
 - metallic effects
 - texture
-- stock-logo clichés
+- stock-logo cliches
 - tiny decorative details
 - generic AI brain graphics
 - generic network-node graphics
@@ -433,10 +599,12 @@ symmetry:
 COLOR STRATEGY
 ==================================================
 
-Choose colors for THIS business.
+Choose colors that respect the user's explicit palette choice.
 
 Consider:
 
+- selected palette
+- custom colors
 - industry
 - requested style
 - audience
@@ -450,10 +618,11 @@ The secondary and accent colors must complement the primary color.
 
 Avoid three colors with nearly identical brightness.
 
-Avoid very pale primary colors because the logo is displayed
-on a white background.
+Avoid very pale primary colors because logos are previewed on a
+white background.
 
-Do not automatically select blue for technology businesses.
+Do not automatically select blue for technology businesses unless
+the user's selected palette calls for it.
 
 ==================================================
 OUTPUT
@@ -468,24 +637,17 @@ Use exactly this schema:
     "shape": "<allowed value>",
     "layout": "<allowed value>",
     "font_style": "<allowed value>",
-
     "visual_metaphor": "<specific business-related visual idea>",
-
     "composition": "<clear description of geometry arrangement>",
-
     "geometry_style": "<sharp, rounded, or mixed>",
     "symmetry": "<none, bilateral, or radial>",
-
     "complexity": <1, 2, or 3>,
-
     "primary_color": "<6-digit HEX>",
     "secondary_color": "<6-digit HEX>",
     "accent_color": "<6-digit HEX>",
-
     "rotation": <integer 0-180>,
     "layers": <integer 1-4>,
     "stroke_width": <integer 8-35>,
-
     "concept": "<one concise explanation connecting design to business>"
 }}
 
@@ -499,7 +661,19 @@ Do not explain the JSON.
 
 Follow the assigned creative direction.
 
-Prefer:
+Respect requested style:
+{style}
+
+Respect selected palette:
+{palette_instruction}
+
+Respect custom colors:
+{custom_color_instruction}
+
+Respect creative direction from user:
+{creative_instruction}
+
+Prefer logo family:
 {", ".join(direction["preferred_types"])}
 
 Prefer geometry from:
@@ -528,7 +702,10 @@ stroke_width must be 8 through 35.
                 "format": "json",
                 "options": {
                     "temperature": 0.78,
-                    "seed": random.randint(1, 2_000_000_000),
+                    "seed": random.randint(
+                        1,
+                        2_000_000_000,
+                    ),
                 },
             },
             timeout=120,
@@ -537,18 +714,83 @@ stroke_width must be 8 through 35.
         response.raise_for_status()
 
         result = response.json()
-        raw_response = result.get("response", "{}")
 
-        specification = json.loads(raw_response)
+        raw_response = result.get(
+            "response",
+            "{}",
+        )
+
+        specification = json.loads(
+            raw_response
+        )
+
+        if not isinstance(
+            specification,
+            dict,
+        ):
+            specification = {}
 
     except Exception as error:
-        print("Logo designer AI error:", repr(error))
+        print(
+            "Logo designer AI error:",
+            repr(error),
+        )
+
         specification = {}
+
+    # -----------------------------------------------------
+    # CUSTOM COLOR OVERRIDE
+    # -----------------------------------------------------
+    #
+    # Explicit user HEX colors are stronger than the model's
+    # choices. This guarantees that the custom-color UI is
+    # functional rather than merely advisory.
+    # -----------------------------------------------------
+
+    valid_custom_colors = []
+
+    for color in custom_colors:
+        cleaned = clean_hex(
+            color,
+            "",
+        )
+
+        if cleaned:
+            valid_custom_colors.append(
+                cleaned
+            )
+
+    if valid_custom_colors:
+        specification[
+            "primary_color"
+        ] = valid_custom_colors[0]
+
+        specification[
+            "secondary_color"
+        ] = (
+            valid_custom_colors[1]
+            if len(valid_custom_colors) > 1
+            else valid_custom_colors[0]
+        )
+
+        specification[
+            "accent_color"
+        ] = (
+            valid_custom_colors[2]
+            if len(valid_custom_colors) > 2
+            else (
+                valid_custom_colors[1]
+                if len(valid_custom_colors) > 1
+                else valid_custom_colors[0]
+            )
+        )
 
     return sanitize_specification(
         specification=specification,
         direction=direction,
         direction_index=direction_index,
+        palette_name=palette_name,
+        custom_colors=valid_custom_colors,
     )
 
 
@@ -560,16 +802,34 @@ def sanitize_specification(
     specification: dict,
     direction: dict,
     direction_index: int,
+    palette_name: str = "",
+    custom_colors: list[str] | None = None,
 ) -> dict:
+    """
+    Validate Ollama's structured result and enforce important
+    frontend selections.
+    """
 
-    if not isinstance(specification, dict):
+    if not isinstance(
+        specification,
+        dict,
+    ):
         specification = {}
+
+    custom_colors = (
+        custom_colors
+        or []
+    )
 
     # -----------------------------------------------------
     # LOGO TYPE
     # -----------------------------------------------------
 
-    preferred_types = direction["preferred_types"]
+    preferred_types = (
+        direction[
+            "preferred_types"
+        ]
+    )
 
     logo_type = specification.get(
         "logo_type",
@@ -586,7 +846,11 @@ def sanitize_specification(
     # SHAPE
     # -----------------------------------------------------
 
-    preferred_shapes = direction["preferred_shapes"]
+    preferred_shapes = (
+        direction[
+            "preferred_shapes"
+        ]
+    )
 
     shape = specification.get(
         "shape",
@@ -603,7 +867,11 @@ def sanitize_specification(
     # LAYOUT
     # -----------------------------------------------------
 
-    preferred_layout = direction["preferred_layout"]
+    preferred_layout = (
+        direction[
+            "preferred_layout"
+        ]
+    )
 
     layout = specification.get(
         "layout",
@@ -613,12 +881,16 @@ def sanitize_specification(
     if layout not in LAYOUTS:
         layout = preferred_layout
 
-    # Keep strongly structured directions structurally distinct.
     if logo_type == "wordmark":
         layout = "wordmark"
+
     elif logo_type == "emblem":
         layout = "emblem"
-    elif direction["name"] in {"negative-space", "abstract-motion"}:
+
+    elif direction["name"] in {
+        "negative-space",
+        "abstract-motion",
+    }:
         layout = preferred_layout
 
     # -----------------------------------------------------
@@ -654,99 +926,245 @@ def sanitize_specification(
         symmetry = "bilateral"
 
     # -----------------------------------------------------
-    # COLORS
+    # COLOR PALETTE
     # -----------------------------------------------------
 
-    palette = FALLBACK_PALETTES[
-        direction_index % len(FALLBACK_PALETTES)
-    ]
-
-    primary = clean_hex(
-        specification.get("primary_color"),
-        palette["primary"],
+    fallback_palette = (
+        FALLBACK_PALETTES[
+            direction_index
+            % len(FALLBACK_PALETTES)
+        ]
     )
 
-    secondary = clean_hex(
-        specification.get("secondary_color"),
-        palette["secondary"],
+    named_palette = (
+        NAMED_PALETTES.get(
+            palette_name
+        )
     )
 
-    accent = clean_hex(
-        specification.get("accent_color"),
-        palette["accent"],
-    )
+    # Named frontend palette is stronger than random Ollama
+    # color choice. Custom colors are stronger still.
+    if custom_colors:
+        selected_palette = {
+            "primary":
+                custom_colors[0],
 
-    # Prevent invisible/pale primary marks on white.
+            "secondary":
+                (
+                    custom_colors[1]
+                    if len(custom_colors) > 1
+                    else custom_colors[0]
+                ),
+
+            "accent":
+                (
+                    custom_colors[2]
+                    if len(custom_colors) > 2
+                    else (
+                        custom_colors[1]
+                        if len(custom_colors) > 1
+                        else custom_colors[0]
+                    )
+                ),
+        }
+
+        enforce_palette = True
+
+    elif named_palette:
+        selected_palette = (
+            named_palette
+        )
+
+        enforce_palette = True
+
+    else:
+        selected_palette = (
+            fallback_palette
+        )
+
+        enforce_palette = False
+
+    if enforce_palette:
+        primary = selected_palette[
+            "primary"
+        ]
+
+        secondary = selected_palette[
+            "secondary"
+        ]
+
+        accent = selected_palette[
+            "accent"
+        ]
+
+    else:
+        primary = clean_hex(
+            specification.get(
+                "primary_color"
+            ),
+            selected_palette[
+                "primary"
+            ],
+        )
+
+        secondary = clean_hex(
+            specification.get(
+                "secondary_color"
+            ),
+            selected_palette[
+                "secondary"
+            ],
+        )
+
+        accent = clean_hex(
+            specification.get(
+                "accent_color"
+            ),
+            selected_palette[
+                "accent"
+            ],
+        )
+
+    # Keep the primary mark visible on white.
     if is_too_light(primary):
-        primary = palette["primary"]
+        primary = (
+            fallback_palette[
+                "primary"
+            ]
+        )
 
-    if primary == secondary:
-        secondary = palette["secondary"]
+    # Prevent accidental duplicate colors when the user did
+    # not explicitly request duplicates.
+    if (
+        not custom_colors
+        and primary == secondary
+    ):
+        secondary = selected_palette[
+            "secondary"
+        ]
 
-    if secondary == accent:
-        accent = palette["accent"]
+    if (
+        not custom_colors
+        and secondary == accent
+    ):
+        accent = selected_palette[
+            "accent"
+        ]
 
     # -----------------------------------------------------
     # RESULT
     # -----------------------------------------------------
 
     return {
-        "logo_type": logo_type,
-        "shape": shape,
-        "layout": layout,
-        "font_style": font_style,
+        "logo_type":
+            logo_type,
 
-        "visual_metaphor": clean_text(
-            specification.get("visual_metaphor"),
-            "A distinctive symbol representing the brand's core value.",
-        ),
+        "shape":
+            shape,
 
-        "composition": clean_text(
-            specification.get("composition"),
-            "Balanced professional vector composition.",
-        ),
+        "layout":
+            layout,
 
-        "geometry_style": geometry_style,
-        "symmetry": symmetry,
+        "font_style":
+            font_style,
 
-        "complexity": clamp_integer(
-            specification.get("complexity", 2),
-            1,
-            3,
-            2,
-        ),
+        "visual_metaphor":
+            clean_text(
+                specification.get(
+                    "visual_metaphor"
+                ),
+                (
+                    "A distinctive symbol "
+                    "representing the brand's "
+                    "core value."
+                ),
+            ),
 
-        "primary_color": primary,
-        "secondary_color": secondary,
-        "accent_color": accent,
+        "composition":
+            clean_text(
+                specification.get(
+                    "composition"
+                ),
+                (
+                    "Balanced professional "
+                    "vector composition."
+                ),
+            ),
 
-        "rotation": clamp_integer(
-            specification.get("rotation", 0),
-            0,
-            180,
-            0,
-        ),
+        "geometry_style":
+            geometry_style,
 
-        "layers": clamp_integer(
-            specification.get("layers", 2),
-            1,
-            4,
-            2,
-        ),
+        "symmetry":
+            symmetry,
 
-        "stroke_width": clamp_integer(
-            specification.get("stroke_width", 18),
-            8,
-            35,
-            18,
-        ),
+        "complexity":
+            clamp_integer(
+                specification.get(
+                    "complexity",
+                    2,
+                ),
+                1,
+                3,
+                2,
+            ),
 
-        "concept": clean_text(
-            specification.get("concept"),
-            "Distinctive professional brand identity.",
-        ),
+        "primary_color":
+            primary,
 
-        "creative_direction": direction["name"],
+        "secondary_color":
+            secondary,
+
+        "accent_color":
+            accent,
+
+        "rotation":
+            clamp_integer(
+                specification.get(
+                    "rotation",
+                    0,
+                ),
+                0,
+                180,
+                0,
+            ),
+
+        "layers":
+            clamp_integer(
+                specification.get(
+                    "layers",
+                    2,
+                ),
+                1,
+                4,
+                2,
+            ),
+
+        "stroke_width":
+            clamp_integer(
+                specification.get(
+                    "stroke_width",
+                    18,
+                ),
+                8,
+                35,
+                18,
+            ),
+
+        "concept":
+            clean_text(
+                specification.get(
+                    "concept"
+                ),
+                (
+                    "Distinctive professional "
+                    "brand identity."
+                ),
+            ),
+
+        "creative_direction":
+            direction[
+                "name"
+            ],
     }
 
 
@@ -754,12 +1172,21 @@ def sanitize_specification(
 # HEX VALIDATION
 # =========================================================
 
-def clean_hex(value, fallback):
-
-    if not isinstance(value, str):
+def clean_hex(
+    value,
+    fallback,
+):
+    if not isinstance(
+        value,
+        str,
+    ):
         return fallback
 
-    value = value.strip()
+    value = (
+        value
+        .strip()
+        .upper()
+    )
 
     if len(value) != 7:
         return fallback
@@ -768,8 +1195,12 @@ def clean_hex(value, fallback):
         return fallback
 
     try:
-        int(value[1:], 16)
-        return value.upper()
+        int(
+            value[1:],
+            16,
+        )
+
+        return value
 
     except ValueError:
         return fallback
@@ -779,18 +1210,34 @@ def clean_hex(value, fallback):
 # LIGHTNESS CHECK
 # =========================================================
 
-def is_too_light(hex_color: str) -> bool:
+def is_too_light(
+    hex_color: str,
+) -> bool:
     """
-    Reject colors that are likely to disappear against the
-    white logo preview background.
+    Reject colors likely to disappear against the white
+    logo preview background.
     """
 
     try:
-        value = hex_color.lstrip("#")
+        value = (
+            hex_color
+            .lstrip("#")
+        )
 
-        red = int(value[0:2], 16)
-        green = int(value[2:4], 16)
-        blue = int(value[4:6], 16)
+        red = int(
+            value[0:2],
+            16,
+        )
+
+        green = int(
+            value[2:4],
+            16,
+        )
+
+        blue = int(
+            value[4:6],
+            16,
+        )
 
         luminance = (
             0.2126 * red
@@ -798,7 +1245,9 @@ def is_too_light(hex_color: str) -> bool:
             + 0.0722 * blue
         )
 
-        return luminance > 215
+        return (
+            luminance > 215
+        )
 
     except Exception:
         return False
@@ -814,13 +1263,17 @@ def clamp_integer(
     maximum,
     fallback,
 ):
-
     try:
-        value = int(value)
+        value = int(
+            value
+        )
 
         return max(
             minimum,
-            min(maximum, value),
+            min(
+                maximum,
+                value,
+            ),
         )
 
     except Exception:
@@ -835,11 +1288,15 @@ def clean_text(
     value,
     fallback,
 ):
-
-    if not isinstance(value, str):
+    if not isinstance(
+        value,
+        str,
+    ):
         return fallback
 
-    value = value.strip()
+    value = (
+        value.strip()
+    )
 
     if not value:
         return fallback
