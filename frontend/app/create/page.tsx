@@ -247,31 +247,36 @@ export default function CreateBrandPage() {
       setStage("logos");
 
       /*
-       * Current backend generates a three-concept batch.
-       * For 6/9, request additional batches.
+       * Generate all requested logo concepts in one sequential
+       * backend batch. The backend handles online providers first
+       * and falls back to the local renderer when required.
        */
-      const batches = Math.max(1, conceptCount / 3);
-
-      for (let batch = 0; batch < batches; batch += 1) {
-        const logoResponse = await fetch(
-          `${API}/projects/${projectId}/generate-logo`,
-          {
-            method: "POST",
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        );
-
-        const logoData = await readResponse(logoResponse);
-
-        if (!logoResponse.ok) {
-          throw new Error(
-            logoData?.detail ||
-              logoData?.message ||
-              "Logo generation failed."
-          );
+      const logoResponse = await fetch(
+        `${API}/projects/${projectId}/generate-logo`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            count: conceptCount,
+            logo_style: logoStyle,
+            palette,
+            custom_colors: useCustomColors ? customColors : [],
+            creative_prompt: creativeDirection.trim(),
+          }),
         }
+      );
+
+      const logoData = await readResponse(logoResponse);
+
+      if (!logoResponse.ok) {
+        throw new Error(
+          logoData?.detail ||
+            logoData?.message ||
+            "Logo generation failed."
+        );
       }
 
       setStage("complete");

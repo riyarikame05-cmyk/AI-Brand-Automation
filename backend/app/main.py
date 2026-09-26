@@ -383,6 +383,16 @@ def create_logo_concepts(
     print(f"[LOGO] Business: {business_name}")
     print(f"[LOGO] Existing concepts: {existing_logo_count}")
     print(f"[LOGO] New concepts requested: {count}")
+    print(f"[LOGO] Logo style: {effective_style}")
+    print(f"[LOGO] Palette: {palette_name}")
+    print(
+        f"[LOGO] Custom colors: "
+        f"{custom_colors if custom_colors else 'none'}"
+    )
+    print(
+        f"[LOGO] Creative prompt: "
+        f"{creative_prompt if creative_prompt else 'none'}"
+    )
     print("========================================")
 
     try:
