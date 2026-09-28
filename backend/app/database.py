@@ -326,6 +326,53 @@ def initialize_local_database() -> None:
             bind=engine
         )
 
+        # Existing SQLite databases require explicit column
+        # migration because create_all() does not alter tables.
+        with engine.begin() as connection:
+            project_columns = {
+                row[1]
+                for row in connection.execute(
+                    text("PRAGMA table_info(projects)")
+                )
+            }
+
+            asset_columns = {
+                row[1]
+                for row in connection.execute(
+                    text("PRAGMA table_info(assets)")
+                )
+            }
+
+            project_migrations = {
+                "generation_palette": "VARCHAR",
+                "generation_custom_colors": "TEXT",
+                "generation_logo_style": "VARCHAR",
+                "generation_creative_prompt": "TEXT",
+            }
+
+            for column_name, column_type in project_migrations.items():
+                if column_name not in project_columns:
+                    connection.execute(
+                        text(
+                            f"ALTER TABLE projects "
+                            f"ADD COLUMN {column_name} {column_type}"
+                        )
+                    )
+                    print(
+                        f"[DATABASE] Added projects.{column_name}"
+                    )
+
+            if "specification" not in asset_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE assets "
+                        "ADD COLUMN specification TEXT"
+                    )
+                )
+                print(
+                    "[DATABASE] Added assets.specification"
+                )
+
         # Force one connection so the SQLite PRAGMAs above
         # are applied and WAL is initialized immediately.
         with engine.connect() as connection:

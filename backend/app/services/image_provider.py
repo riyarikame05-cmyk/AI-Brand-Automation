@@ -1,6 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
+from io import BytesIO
+
+from PIL import Image, ImageFilter, ImageStat
 
 from .flux_provider import (
     generate_flux_campaign,
@@ -79,6 +82,132 @@ def _get_purpose(
         .lower()
     )
 
+# =========================================================
+# CLOUD LOGO QUALITY GATE
+# =========================================================
+
+def _check_cloud_logo_quality(
+    image_bytes: bytes,
+) -> None:
+    """
+    Reject cloud symbol artwork that behaves more like a
+    photographic, shaded, gradient-heavy, or mockup render
+    than a flat logo.
+
+    This gate is used only for cloud-generated logo symbols.
+    Campaign images bypass it.
+    """
+
+    try:
+        image = Image.open(BytesIO(image_bytes))
+        image.load()
+        image = image.convert("RGB")
+
+        image.thumbnail(
+            (256, 256),
+            Image.Resampling.LANCZOS,
+        )
+
+        grayscale = image.convert("L")
+        edges = grayscale.filter(ImageFilter.FIND_EDGES)
+
+        edge_mean = ImageStat.Stat(edges).mean[0]
+        tonal_stddev = ImageStat.Stat(grayscale).stddev[0]
+
+        # Measure broad color complexity.
+        quantized_64 = image.quantize(
+            colors=64,
+            method=Image.Quantize.MEDIANCUT,
+        )
+
+        color_counts = quantized_64.getcolors(maxcolors=64) or []
+
+        significant_colors = sum(
+            1
+            for count, _ in color_counts
+            if count >= 20
+        )
+
+        # Measure how well the artwork survives aggressive
+        # reduction to a small, flat color palette.
+        quantized_8 = image.quantize(
+            colors=8,
+            method=Image.Quantize.MEDIANCUT,
+        ).convert("RGB")
+
+        original_pixels = list(image.getdata())
+        flat_pixels = list(quantized_8.getdata())
+
+        total_error = 0.0
+
+        for original, reduced in zip(
+            original_pixels,
+            flat_pixels,
+        ):
+            dr = original[0] - reduced[0]
+            dg = original[1] - reduced[1]
+            db = original[2] - reduced[2]
+
+            total_error += (
+                abs(dr)
+                + abs(dg)
+                + abs(db)
+            ) / 3.0
+
+        pixel_count = max(
+            1,
+            len(original_pixels),
+        )
+
+        flatness_error = total_error / pixel_count
+
+        print(
+            "[IMAGE QUALITY] "
+            f"colors={significant_colors}, "
+            f"tonal_stddev={tonal_stddev:.1f}, "
+            f"edge_mean={edge_mean:.1f}, "
+            f"flatness_error={flatness_error:.1f}"
+        )
+
+        strongly_photographic = (
+            significant_colors >= 45
+            and tonal_stddev >= 45
+            and edge_mean >= 12
+        )
+
+        heavily_rendered = (
+            significant_colors >= 50
+            and (
+                flatness_error >= 7.0
+                or tonal_stddev >= 28
+                or edge_mean >= 9
+            )
+        )
+
+        if strongly_photographic or heavily_rendered:
+            reasons = []
+
+            if strongly_photographic:
+                reasons.append("photographic complexity")
+
+            if heavily_rendered:
+                reasons.append("gradient/rendered shading")
+
+            raise RuntimeError(
+                "Cloud artwork rejected by logo quality gate: "
+                + ", ".join(reasons)
+                + "."
+            )
+
+    except RuntimeError:
+        raise
+
+    except Exception as error:
+        print(
+            "[IMAGE QUALITY] Check skipped:",
+            repr(error),
+        )
+
 
 # =========================================================
 # CLOUD LOGO COMPOSITION
@@ -101,6 +230,11 @@ def _compose_if_symbol(
 
     if purpose != "symbol":
         return image_bytes
+
+
+    _check_cloud_logo_quality(
+        image_bytes
+    )
 
     specification = kwargs.get(
         "specification",
@@ -594,166 +728,5 @@ def generate_image(
         f"Unknown image provider: {selected}"
     )
 
-    # =====================================================
-    # LOGOS ARE ALWAYS LOCAL
-    # =====================================================
-    #
-    # Master logo generation must be:
-    #
-    # Ollama
-    #   ->
-    # structured specification
-    #   ->
-    # deterministic local renderer
-    #
-    # This prevents:
-    # - online API dependency
-    # - image-model watermarks
-    # - malformed typography
-    # - inconsistent logo styles
-    # =====================================================
 
-    if purpose == "symbol":
 
-        print(
-            "[IMAGE] Logo symbol requested - "
-            "forcing local renderer."
-        )
-
-        return generate_local_image(
-            **kwargs
-        )
-
-    # =====================================================
-    # EXPLICIT LOCAL
-    # =====================================================
-
-    if selected == "local":
-
-        # Local campaign-image generation is not currently
-        # implemented.
-        raise RuntimeError(
-            "Local campaign image generation "
-            "is not currently available."
-        )
-
-    # =====================================================
-    # EXPLICIT FLUX
-    # =====================================================
-
-    if selected == "flux":
-
-        print(
-            "[IMAGE] Using FLUX/Pollinations "
-            "for campaign image."
-        )
-
-        return generate_flux_image(
-            **kwargs
-        )
-
-    # =====================================================
-    # EXPLICIT REPLICATE
-    # =====================================================
-
-    if selected == "replicate":
-
-        print(
-            "[IMAGE] Using Replicate "
-            "for campaign image."
-        )
-
-        return (
-            generate_replicate_provider_image(
-                **kwargs
-            )
-        )
-
-    # =====================================================
-    # AUTO
-    # =====================================================
-
-    if selected == "auto":
-
-        errors = []
-
-        # -------------------------------------------------
-        # REPLICATE
-        # -------------------------------------------------
-
-        if _replicate_configured():
-
-            try:
-
-                print(
-                    "[IMAGE] Trying Replicate..."
-                )
-
-                result = (
-                    generate_replicate_provider_image(
-                        **kwargs
-                    )
-                )
-
-                print(
-                    "[IMAGE] Replicate succeeded."
-                )
-
-                return result
-
-            except Exception as error:
-
-                print(
-                    "[IMAGE] Replicate failed:",
-                    repr(error),
-                )
-
-                errors.append(
-                    f"replicate: {error}"
-                )
-
-        else:
-
-            print(
-                "[IMAGE] Replicate not configured."
-            )
-
-        # -------------------------------------------------
-        # FLUX / POLLINATIONS
-        # -------------------------------------------------
-
-        try:
-
-            print(
-                "[IMAGE] Trying FLUX/Pollinations..."
-            )
-
-            result = generate_flux_image(
-                **kwargs
-            )
-
-            print(
-                "[IMAGE] FLUX/Pollinations succeeded."
-            )
-
-            return result
-
-        except Exception as error:
-
-            print(
-                "[IMAGE] FLUX/Pollinations failed:",
-                repr(error),
-            )
-
-            errors.append(
-                f"flux: {error}"
-            )
-
-        raise RuntimeError(
-            "Campaign image generation failed. "
-            + " | ".join(errors)
-        )
-
-    raise ValueError(
-        f"Unknown image provider: {selected}"
-    )

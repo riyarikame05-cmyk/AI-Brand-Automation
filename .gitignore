@@ -67,3 +67,7 @@ backend/.env
 backend/generated/
 
 *.backup-*
+
+*.db
+*.db-shm
+*.db-wal

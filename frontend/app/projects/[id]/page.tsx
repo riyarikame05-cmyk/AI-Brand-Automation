@@ -25,6 +25,10 @@ interface Project {
   description: string;
   industry: string;
   style: string;
+  generation_palette?: string;
+  generation_custom_colors?: string[];
+  generation_logo_style?: string;
+  generation_creative_prompt?: string;
   created_at: string;
 }
 
@@ -40,6 +44,15 @@ interface Asset {
   asset_type: string;
   url: string;
   prompt: string | null;
+  specification?: {
+    primary_color?: string;
+    secondary_color?: string;
+    accent_color?: string;
+    logo_type?: string;
+    shape?: string;
+    creative_direction?: string;
+    [key: string]: unknown;
+  } | null;
   is_selected: boolean;
   created_at: string;
   palette?: Palette | null;
@@ -421,7 +434,22 @@ export default function ProjectPage() {
           method: "POST",
           headers: {
             Accept: "application/json",
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            count: 3,
+            logo_style:
+              project?.generation_logo_style ||
+              project?.style ||
+              "",
+            palette:
+              project?.generation_palette ||
+              "",
+            custom_colors:
+              project?.generation_custom_colors ||
+              [],
+            creative_prompt: "",
+          }),
           cache: "no-store",
         }
       );
@@ -760,7 +788,7 @@ export default function ProjectPage() {
 
               {selectedLogo && (
                 <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                  ✓ Identity selected
+                  âœ“ Identity selected
                 </span>
               )}
             </div>
@@ -779,9 +807,9 @@ export default function ProjectPage() {
               href={`/projects/${projectId}/tools`}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-700 hover:shadow-md"
             >
-              <span>✦</span>
+              <span>âœ¦</span>
               Creative Tools
-              <span>→</span>
+              <span>-></span>
             </Link>
 
             <button
@@ -800,7 +828,7 @@ export default function ProjectPage() {
                 </>
               ) : (
                 <>
-                  <span>↻</span>
+                  <span></span>
                   Generate more
                 </>
               )}
@@ -827,7 +855,7 @@ export default function ProjectPage() {
                 role="status"
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm text-emerald-700"
               >
-                ✓ {successMessage}
+                âœ“ {successMessage}
               </div>
             )}
           </section>
@@ -932,7 +960,7 @@ export default function ProjectPage() {
 
                         {selected && (
                           <span className="absolute right-4 top-4 z-10 rounded-full bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white">
-                            ✓ Selected
+                            âœ“ Selected
                           </span>
                         )}
 
@@ -1055,7 +1083,7 @@ export default function ProjectPage() {
                           {selecting
                             ? "Building identity..."
                             : selected
-                              ? "✓ Selected direction"
+                              ? "âœ“ Selected direction"
                               : "Choose this direction"}
                         </button>
                       </div>
@@ -1067,7 +1095,7 @@ export default function ProjectPage() {
           ) : (
             <div className="mt-7 rounded-[22px] border border-dashed border-violet-200 bg-white/70 px-6 py-16 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-lg text-violet-600">
-                ◇
+                â—‡
               </div>
 
               <h3 className="mt-5 text-base font-semibold text-zinc-900">
@@ -1108,7 +1136,7 @@ export default function ProjectPage() {
                   </>
                 ) : (
                   <>
-                    ↻ Explore more
+                    Explore more
                     directions
                   </>
                 )}
@@ -1138,7 +1166,7 @@ export default function ProjectPage() {
                 </div>
 
                 <span className="shrink-0 text-sm font-semibold text-violet-600">
-                  Choose a concept ↑
+                  Choose a concept 
                 </span>
               </div>
             </section>
@@ -1194,7 +1222,7 @@ export default function ProjectPage() {
                     rel="noopener noreferrer"
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
                   >
-                    ↓ Download PNG
+                     Download PNG
                   </a>
                 </div>
               </StudioCard>
@@ -1342,7 +1370,7 @@ export default function ProjectPage() {
 
                     {brandKit.slogan && (
                       <h3 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] sm:text-4xl">
-                        “{brandKit.slogan}”
+                        â€œ{brandKit.slogan}â€
                       </h3>
                     )}
 
@@ -1415,7 +1443,7 @@ export default function ProjectPage() {
                       </p>
 
                       <p className="mt-0.5 text-xs text-zinc-400">
-                        MP4 · Generated from selected identity
+                        MP4 Â· Generated from selected identity
                       </p>
                     </div>
 
@@ -1426,7 +1454,7 @@ export default function ProjectPage() {
                       rel="noopener noreferrer"
                       className="rounded-xl bg-zinc-950 px-4 py-2.5 text-center text-xs font-semibold text-white"
                     >
-                      ↓ Download video
+                       Download video
                     </a>
                   </div>
                 </>
@@ -1436,7 +1464,7 @@ export default function ProjectPage() {
                 <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
                   <div>
                     <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
-                      ▶
+                      â–¶
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-zinc-800">
@@ -1454,7 +1482,7 @@ export default function ProjectPage() {
                 <div className="flex flex-col justify-between gap-7 lg:flex-row lg:items-center">
                   <div>
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                      ↓
+                      
                     </div>
 
                     <h2 className="mt-4 text-xl font-semibold tracking-tight text-zinc-950">
@@ -1484,7 +1512,7 @@ export default function ProjectPage() {
                     href={`${API}/projects/${projectId}/download-package`}
                     className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800"
                   >
-                    ↓ Download brand kit
+                     Download brand kit
                   </a>
                 </div>
               </div>
@@ -1504,7 +1532,7 @@ export default function ProjectPage() {
             title="Brand identity"
             value={
               selectedLogo
-                ? "Selected ✓"
+                ? "Selected âœ“"
                 : "Awaiting selection"
             }
           />
@@ -1561,7 +1589,7 @@ function StudioCard({
 
         {badge && (
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-            ✓ {badge}
+            âœ“ {badge}
           </span>
         )}
       </div>
@@ -1642,7 +1670,7 @@ function ColorCard({
       </div>
 
       <span className="ml-auto text-[11px] font-medium text-zinc-400 transition group-hover:text-violet-600">
-        {copied ? "Copied ✓" : "Copy"}
+        {copied ? "Copied âœ“" : "Copy"}
       </span>
     </button>
   );
@@ -1679,3 +1707,4 @@ function SummaryCard({
     </div>
   );
 }
+

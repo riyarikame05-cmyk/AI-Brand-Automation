@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import random
@@ -286,6 +286,74 @@ FALLBACK_PALETTES = [
 # =========================================================
 # MAIN AI LOGO DESIGNER
 # =========================================================
+
+def sanitize_flat_logo_specification(specification: dict) -> dict:
+    """
+    Remove rendering/effect language that is unsuitable for
+    master logo artwork before cloud or local rendering.
+    """
+    if not isinstance(specification, dict):
+        return {}
+
+    replacements = {
+        "gradients": "flat solid color regions",
+        "gradient": "flat solid color",
+        "3d effects": "flat vector forms",
+        "3d effect": "flat vector form",
+        "3d render": "flat vector artwork",
+        "3d": "flat vector",
+        "drop shadows": "clean separation",
+        "drop shadow": "clean separation",
+        "shadows": "clean contrast",
+        "shadow": "clean contrast",
+        "metallic effects": "solid color treatment",
+        "metallic effect": "solid color treatment",
+        "metallic": "solid color",
+        "glass effects": "flat geometric forms",
+        "glass effect": "flat geometric form",
+        "glass": "flat geometric",
+        "photorealistic": "vector-like",
+        "realistic": "simplified vector",
+        "textures": "solid fills",
+        "texture": "solid fill",
+        "glowing": "high-contrast",
+        "glow": "contrast",
+        "studio lighting": "flat color contrast",
+        "lighting": "color contrast",
+        "embossed": "flat",
+        "embossing": "flat geometry",
+        "mockup": "logo artwork",
+        "shading": "flat solid color separation",
+        "shaded": "flat solid color",
+        "depth": "flat geometric layering",
+        "dimensional": "flat geometric",
+        "dimension": "flat geometry",
+        "beveled": "flat-edged",
+        "bevel": "flat edge",
+        "glossy": "matte flat",
+        "gloss": "matte flat finish",
+        "reflective": "solid color",
+        "reflection": "clean negative space",
+        "isometric": "front-facing flat",
+    }
+
+    for key in ("composition", "concept", "visual_metaphor"):
+        value = specification.get(key)
+
+        if not isinstance(value, str):
+            continue
+
+        cleaned = value
+
+        for source, replacement in replacements.items():
+            cleaned = cleaned.replace(source, replacement)
+            cleaned = cleaned.replace(source.title(), replacement)
+            cleaned = cleaned.replace(source.upper(), replacement)
+
+        specification[key] = cleaned
+
+    return specification
+
 
 def generate_logo_specification(
     business_name: str,
@@ -737,6 +805,10 @@ stroke_width must be 8 through 35.
         )
 
         specification = {}
+
+    specification = sanitize_flat_logo_specification(
+        specification
+    )
 
     # -----------------------------------------------------
     # CUSTOM COLOR OVERRIDE
@@ -1302,3 +1374,4 @@ def clean_text(
         return fallback
 
     return value[:500]
+

@@ -1,4 +1,4 @@
-﻿import json
+import json
 import uuid
 from uuid import UUID
 from pathlib import Path
@@ -162,6 +162,14 @@ def project_to_dict(
         "description": project.description,
         "industry": project.industry,
         "style": project.style,
+        "generation_palette": project.generation_palette or "",
+        "generation_custom_colors": (
+            json.loads(project.generation_custom_colors)
+            if project.generation_custom_colors
+            else []
+        ),
+        "generation_logo_style": project.generation_logo_style or "",
+        "generation_creative_prompt": project.generation_creative_prompt or "",
         "created_at": project.created_at,
     }
 
@@ -181,6 +189,11 @@ def asset_to_dict(
         "asset_type": asset.asset_type,
         "url": asset.url,
         "prompt": asset.prompt,
+        "specification": (
+            json.loads(asset.specification)
+            if asset.specification
+            else None
+        ),
         "is_selected": bool(asset.is_selected),
         "created_at": asset.created_at,
     }
@@ -412,7 +425,7 @@ def create_logo_concepts(
             # Keep local rendering enabled while validating
             # SQLite persistence. Hybrid auto routing is the
             # next controlled change.
-            image_bytes = generate_logo_image(
+            generation_result = generate_logo_image(
                 business_name=business_name,
                 industry=industry,
                 style=effective_style,
@@ -423,6 +436,30 @@ def create_logo_concepts(
                 custom_colors=custom_colors,
                 creative_prompt=creative_prompt,
             )
+
+            if not isinstance(
+                generation_result,
+                dict,
+            ):
+                raise RuntimeError(
+                    "Logo generator returned invalid result data."
+                )
+
+            image_bytes = generation_result.get(
+                "image_bytes"
+            )
+
+            specification = generation_result.get(
+                "specification"
+            )
+
+            if not isinstance(
+                specification,
+                dict,
+            ):
+                raise RuntimeError(
+                    "Logo generator returned invalid specification."
+                )
 
             if not isinstance(
                 image_bytes,
@@ -441,22 +478,21 @@ def create_logo_concepts(
 
             image_url = "http://127.0.0.1:8000" f"/generated/{filename}"
 
-            try:
-                palette = extract_palette(file_path)
+            palette = {
+                "primary_color": specification.get(
+                    "primary_color",
+                    "#111827",
+                ),
+                "secondary_color": specification.get(
+                    "secondary_color",
+                    "#6366F1",
+                ),
+                "accent_color": specification.get(
+                    "accent_color",
+                    "#8B5CF6",
+                ),
+            }
 
-                palette = clean_extracted_palette(palette)
-
-            except Exception as error:
-                print(
-                    "[COLOR] Extraction failed:",
-                    repr(error),
-                )
-
-                palette = {
-                    "primary_color": "#111827",
-                    "secondary_color": "#6366F1",
-                    "accent_color": "#8B5CF6",
-                }
             try:
                 asset = Asset(
                     project_id=project_id,
@@ -466,6 +502,9 @@ def create_logo_concepts(
                         f"Logo concept {concept_number} "
                         f"for {business_name} "
                         f"(direction {direction_index})"
+                    ),
+                    specification=json.dumps(
+                        specification
                     ),
                     is_selected=False,
                 )
@@ -878,6 +917,36 @@ def generate_more_logos(
 
         print("[LOGO] Starting logo batch " f"for project {project.id}")
 
+        # Persist the user's logo generation settings.
+        # Empty values from Explore More must not erase the
+        # original identity preferences.
+        if request.palette.strip():
+            project.generation_palette = (
+                request.palette.strip()
+            )
+
+        if request.custom_colors:
+            project.generation_custom_colors = json.dumps(
+                request.custom_colors
+            )
+        elif not project.generation_custom_colors:
+            project.generation_custom_colors = json.dumps([])
+
+        if request.logo_style.strip():
+            project.generation_logo_style = (
+                request.logo_style.strip()
+            )
+        elif not project.generation_logo_style:
+            project.generation_logo_style = project.style
+
+        if request.creative_prompt.strip():
+            project.generation_creative_prompt = (
+                request.creative_prompt.strip()
+            )
+
+        db.commit()
+        db.refresh(project)
+
         concepts = create_logo_concepts(
             project=(project),
             db=(db),
@@ -1000,23 +1069,40 @@ def select_logo(
         # =================================================
         # FINAL COLOR PALETTE
         # =================================================
+        # Logo specifications are authoritative. Do not
+        # infer official brand colors from rendered pixels.
 
         try:
-
-            palette = extract_palette(logo_path)
-
-        except Exception as error:
-
-            print(
-                "[COLOR] Final extraction failed:",
-                repr(error),
+            specification = (
+                json.loads(logo.specification)
+                if logo.specification
+                else {}
             )
 
             palette = {
-                "primary_color": "#111827",
-                "secondary_color": "#6366F1",
-                "accent_color": "#8B5CF6",
+                "primary_color": specification[
+                    "primary_color"
+                ],
+                "secondary_color": specification[
+                    "secondary_color"
+                ],
+                "accent_color": specification[
+                    "accent_color"
+                ],
             }
+
+        except Exception as error:
+            # Legacy logos created before specification
+            # persistence can still use pixel extraction.
+            print(
+                "[COLOR] Stored specification unavailable; "
+                "using legacy extraction:",
+                repr(error),
+            )
+
+            palette = clean_extracted_palette(
+                extract_palette(logo_path)
+            )
 
         # =================================================
         # BRAND KIT
@@ -1204,8 +1290,37 @@ def get_assets(
             if file_path and file_path.exists():
 
                 try:
+                    specification = (
+                        json.loads(asset.specification)
+                        if asset.specification
+                        else {}
+                    )
 
-                    data["palette"] = extract_palette(file_path)
+                    if all(
+                        specification.get(key)
+                        for key in (
+                            "primary_color",
+                            "secondary_color",
+                            "accent_color",
+                        )
+                    ):
+                        data["palette"] = {
+                            "primary_color": specification[
+                                "primary_color"
+                            ],
+                            "secondary_color": specification[
+                                "secondary_color"
+                            ],
+                            "accent_color": specification[
+                                "accent_color"
+                            ],
+                        }
+                    else:
+                        # Compatibility for logos generated
+                        # before specification persistence.
+                        data["palette"] = clean_extracted_palette(
+                            extract_palette(file_path)
+                        )
 
                 except Exception as error:
 

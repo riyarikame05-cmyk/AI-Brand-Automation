@@ -50,6 +50,26 @@ class Project(Base):
         nullable=False,
     )
 
+    generation_palette = Column(
+        String,
+        nullable=True,
+    )
+
+    generation_custom_colors = Column(
+        Text,
+        nullable=True,
+    )
+
+    generation_logo_style = Column(
+        String,
+        nullable=True,
+    )
+
+    generation_creative_prompt = Column(
+        Text,
+        nullable=True,
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -103,6 +123,11 @@ class Asset(Base):
     )
 
     prompt = Column(
+        Text,
+        nullable=True,
+    )
+
+    specification = Column(
         Text,
         nullable=True,
     )

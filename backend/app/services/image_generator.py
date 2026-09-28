@@ -18,7 +18,7 @@ def generate_logo_image(
     palette_name: str = "",
     custom_colors: list[str] | None = None,
     creative_prompt: str = "",
-) -> bytes:
+) -> dict:
     """
     Generate one complete logo concept.
 
@@ -204,6 +204,9 @@ def generate_logo_image(
         f"({len(image_bytes)} bytes)"
     )
 
-    return bytes(
-        image_bytes
-    )
+    return {
+        "image_bytes": bytes(
+            image_bytes
+        ),
+        "specification": specification,
+    }
