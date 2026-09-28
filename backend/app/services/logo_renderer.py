@@ -360,6 +360,18 @@ def build_parameters(specification):
         "wordmark_emphasis": str(
             specification.get("wordmark_emphasis") or "single"
         ).strip().lower(),
+        "construction": str(
+            specification.get("construction") or ""
+        ).strip().lower(),
+        "accent_motif": str(
+            specification.get("accent_motif") or "none"
+        ).strip().lower(),
+        "typography_personality": str(
+            specification.get("typography_personality") or "modern"
+        ).strip().lower(),
+        "presentation_layout": str(
+            specification.get("presentation_layout") or ""
+        ).strip().lower(),
     }
 
 
@@ -1917,7 +1929,1019 @@ def _premium_emblem_symbol(canvas, parameters, business_name, box):
     )
 
 
+
+def _v4_initial_masks(
+    canvas_size,
+    business_name,
+    parameters,
+    box,
+    overlap=0.20,
+):
+    """Create exact-initial masks for arbitrary brands."""
+    x0, y0, x1, y1 = box
+    width = x1 - x0
+    height = y1 - y0
+    letters = initials(business_name)
+
+    if len(letters) < 2:
+        letters = (letters + letters)[:2]
+
+    personality = parameters.get(
+        "typography_personality",
+        "modern",
+    )
+
+    style_map = {
+        "modern": "modern",
+        "geometric": "modern",
+        "elegant": "elegant",
+        "classic": "classic",
+        "bold": "modern",
+    }
+
+    font = get_font(
+        int(min(width, height) * 0.62),
+        style_map.get(personality, "modern"),
+    )
+
+    masks = []
+
+    centers = (
+        (x0 + width * (0.40 + overlap * 0.10)),
+        (x0 + width * (0.60 - overlap * 0.10)),
+    )
+
+    for letter, center_x in zip(letters[:2], centers):
+        mask = Image.new("L", canvas_size, 0)
+        draw = ImageDraw.Draw(mask)
+
+        bbox = draw.textbbox(
+            (0, 0),
+            letter,
+            font=font,
+        )
+
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+
+        draw.text(
+            (
+                int(center_x - tw / 2),
+                int((y0 + y1) / 2 - th / 2 - bbox[1]),
+            ),
+            letter,
+            font=font,
+            fill=255,
+        )
+
+        masks.append(mask)
+
+    return masks
+
+
+def _v4_accent(
+    canvas,
+    parameters,
+    box,
+):
+    motif = parameters.get("accent_motif", "none")
+
+    if motif == "none":
+        return
+
+    x0, y0, x1, y1 = box
+    width = x1 - x0
+    height = y1 - y0
+    draw = ImageDraw.Draw(canvas)
+
+    accent = parameters["accent"]
+
+    if motif in {"spark", "light"}:
+        x = x1 - width * 0.12
+        y = y0 + height * 0.12
+        r = min(width, height) * 0.035
+
+        points = [
+            (x, y - r * 1.8),
+            (x + r * 0.42, y - r * 0.42),
+            (x + r * 1.8, y),
+            (x + r * 0.42, y + r * 0.42),
+            (x, y + r * 1.8),
+            (x - r * 0.42, y + r * 0.42),
+            (x - r * 1.8, y),
+            (x - r * 0.42, y - r * 0.42),
+        ]
+
+        draw.polygon(
+            [(int(px), int(py)) for px, py in points],
+            fill=accent,
+        )
+
+    elif motif in {"node", "connection"}:
+        r = min(width, height) * 0.027
+        for fx, fy in (
+            (0.17, 0.24),
+            (0.83, 0.30),
+            (0.76, 0.80),
+        ):
+            cx = x0 + width * fx
+            cy = y0 + height * fy
+            draw.ellipse(
+                (
+                    int(cx - r),
+                    int(cy - r),
+                    int(cx + r),
+                    int(cy + r),
+                ),
+                fill=accent,
+            )
+
+    elif motif in {"arc", "motion", "growth"}:
+        margin = min(width, height) * 0.10
+        draw.arc(
+            (
+                int(x0 + margin),
+                int(y0 + margin),
+                int(x1 - margin),
+                int(y1 - margin),
+            ),
+            start=205,
+            end=322,
+            fill=accent,
+            width=max(6, int(min(width, height) * 0.018)),
+        )
+
+    elif motif == "leaf":
+        cx = x1 - width * 0.14
+        cy = y0 + height * 0.16
+        rw = width * 0.055
+        rh = height * 0.095
+
+        draw.ellipse(
+            (
+                int(cx - rw),
+                int(cy - rh),
+                int(cx + rw),
+                int(cy + rh),
+            ),
+            fill=accent,
+        )
+
+        bg = _premium_background(parameters)
+        draw.polygon(
+            [
+                (int(cx - rw), int(cy + rh)),
+                (int(cx + rw), int(cy - rh)),
+                (int(cx + rw), int(cy + rh)),
+            ],
+            fill=bg,
+        )
+
+
+def _v4_ribbon_fusion(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    """Fluid exact-initial fusion using overlapping masks."""
+    masks = _v4_initial_masks(
+        canvas.size,
+        business_name,
+        parameters,
+        box,
+        overlap=0.34,
+    )
+
+    first, second = masks
+
+    gradient_a = _premium_gradient(
+        canvas.size,
+        [
+            parameters["primary"],
+            parameters["secondary"],
+            parameters["accent"],
+        ],
+        horizontal=True,
+    )
+
+    gradient_b = _premium_gradient(
+        canvas.size,
+        [
+            parameters["accent"],
+            parameters["secondary"],
+            parameters["primary"],
+        ],
+        horizontal=False,
+    )
+
+    canvas.paste(
+        gradient_a,
+        (0, 0),
+        first,
+    )
+
+    canvas.paste(
+        gradient_b,
+        (0, 0),
+        second,
+    )
+
+    overlap = ImageChops.multiply(
+        first,
+        second,
+    )
+
+    overlap_ink = Image.new(
+        "RGB",
+        canvas.size,
+        parameters["secondary"],
+    )
+
+    canvas.paste(
+        overlap_ink,
+        (0, 0),
+        overlap,
+    )
+
+    _v4_accent(
+        canvas,
+        parameters,
+        box,
+    )
+
+
+def _v4_sharp_fusion(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    """Angular letter fusion with exact initials and a shared axis."""
+    x0, y0, x1, y1 = box
+    width = x1 - x0
+    height = y1 - y0
+
+    masks = _v4_initial_masks(
+        canvas.size,
+        business_name,
+        parameters,
+        box,
+        overlap=0.26,
+    )
+
+    combined = ImageChops.lighter(
+        masks[0],
+        masks[1],
+    )
+
+    gradient = _premium_gradient(
+        canvas.size,
+        [
+            parameters["primary"],
+            parameters["secondary"],
+        ],
+        horizontal=True,
+    )
+
+    canvas.paste(
+        gradient,
+        (0, 0),
+        combined,
+    )
+
+    draw = ImageDraw.Draw(canvas)
+
+    # Shared diagonal turns ordinary letters into one designed system.
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+
+    thickness = max(
+        16,
+        int(min(width, height) * 0.055),
+    )
+
+    points = [
+        (
+            cx - width * 0.24,
+            cy + height * 0.22,
+        ),
+        (
+            cx + width * 0.23,
+            cy - height * 0.24,
+        ),
+    ]
+
+    draw.line(
+        [
+            (int(x), int(y))
+            for x, y in points
+        ],
+        fill=parameters["accent"],
+        width=thickness,
+    )
+
+    _v4_accent(
+        canvas,
+        parameters,
+        box,
+    )
+
+
+def _v4_negative_space_letter(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    """Initials are cut from a strong containing silhouette."""
+    x0, y0, x1, y1 = box
+    width = x1 - x0
+    height = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+
+    silhouette = Image.new(
+        "L",
+        canvas.size,
+        0,
+    )
+    draw = ImageDraw.Draw(silhouette)
+
+    radius = min(width, height) * 0.39
+
+    sides = (
+        6
+        if parameters.get("geometry_style") == "sharp"
+        else 8
+    )
+
+    points = polygon_points(
+        cx,
+        cy,
+        radius,
+        sides,
+        -90,
+    )
+
+    draw.polygon(
+        [(int(x), int(y)) for x, y in points],
+        fill=255,
+    )
+
+    letter_masks = _v4_initial_masks(
+        canvas.size,
+        business_name,
+        parameters,
+        box,
+        overlap=0.18,
+    )
+
+    cutout = ImageChops.lighter(
+        letter_masks[0],
+        letter_masks[1],
+    )
+
+    final_mask = ImageChops.subtract(
+        silhouette,
+        cutout,
+    )
+
+    gradient = _premium_gradient(
+        canvas.size,
+        [
+            parameters["primary"],
+            parameters["secondary"],
+            parameters["accent"],
+        ],
+        horizontal=True,
+    )
+
+    canvas.paste(
+        gradient,
+        (0, 0),
+        final_mask,
+    )
+
+    _v4_accent(
+        canvas,
+        parameters,
+        box,
+    )
+
+
+def _v4_folded_letter(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    """Exact initials plus controlled folded palette facets."""
+    x0, y0, x1, y1 = box
+    width = x1 - x0
+    height = y1 - y0
+
+    masks = _v4_initial_masks(
+        canvas.size,
+        business_name,
+        parameters,
+        box,
+        overlap=0.28,
+    )
+
+    combined = ImageChops.lighter(
+        masks[0],
+        masks[1],
+    )
+
+    base_gradient = _premium_gradient(
+        canvas.size,
+        [
+            parameters["primary"],
+            parameters["secondary"],
+        ],
+        horizontal=True,
+    )
+
+    canvas.paste(
+        base_gradient,
+        (0, 0),
+        combined,
+    )
+
+    draw = ImageDraw.Draw(canvas)
+
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+
+    facet = [
+        (
+            cx - width * 0.06,
+            cy - height * 0.19,
+        ),
+        (
+            cx + width * 0.11,
+            cy - height * 0.04,
+        ),
+        (
+            cx + width * 0.03,
+            cy + height * 0.16,
+        ),
+        (
+            cx - width * 0.13,
+            cy + height * 0.01,
+        ),
+    ]
+
+    draw.polygon(
+        [(int(x), int(y)) for x, y in facet],
+        fill=parameters["accent"],
+    )
+
+    _v4_accent(
+        canvas,
+        parameters,
+        box,
+    )
+
+
+def _draw_v4_group_a_symbol(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    construction = parameters.get(
+        "construction",
+        "",
+    )
+
+    renderers = {
+        "ribbon-fusion": _v4_ribbon_fusion,
+        "sharp-fusion": _v4_sharp_fusion,
+        "negative-space-letter": _v4_negative_space_letter,
+        "folded-letter": _v4_folded_letter,
+    }
+
+    renderer = renderers.get(
+        construction
+    )
+
+    if renderer is None:
+        return False
+
+    renderer(
+        canvas,
+        parameters,
+        business_name,
+        box,
+    )
+
+    return True
+
+
+def _v4_orbital_spark(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    w = x1 - x0
+    h = y1 - y0
+    draw = ImageDraw.Draw(canvas)
+
+    colors = [p["primary"], p["secondary"], p["accent"]]
+
+    for index, color in enumerate(colors):
+        inset = min(w, h) * (0.12 + index * 0.075)
+        draw.arc(
+            (
+                int(x0 + inset),
+                int(y0 + inset * 0.72),
+                int(x1 - inset),
+                int(y1 - inset * 0.72),
+            ),
+            start=195 + index * 28,
+            end=495 + index * 17,
+            fill=color,
+            width=max(12, int(min(w, h) * (0.055 - index * 0.008))),
+        )
+
+    letters = initials(business_name)
+    font = get_font(int(min(w, h) * 0.25), p["font_style"])
+    bbox = draw.textbbox((0, 0), letters, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    draw.text(
+        (int(cx - tw / 2), int(cy - th / 2 - bbox[1])),
+        letters,
+        font=font,
+        fill=_premium_ink(p),
+    )
+
+    _v4_accent(canvas, p, box)
+
+
+def _v4_continuous_flow(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+
+    mask = Image.new("L", canvas.size, 0)
+    draw = ImageDraw.Draw(mask)
+
+    points = [
+        (x0 + w * 0.12, cy + h * 0.13),
+        (x0 + w * 0.30, y0 + h * 0.12),
+        (x0 + w * 0.48, y1 - h * 0.18),
+        (x0 + w * 0.66, cy - h * 0.11),
+    ]
+
+    p0, p1, p2, p3 = points
+    samples = []
+
+    for i in range(61):
+        t = i / 60
+        q = 1 - t
+        px = (
+            q**3 * p0[0]
+            + 3 * q**2 * t * p1[0]
+            + 3 * q * t**2 * p2[0]
+            + t**3 * p3[0]
+        )
+        py = (
+            q**3 * p0[1]
+            + 3 * q**2 * t * p1[1]
+            + 3 * q * t**2 * p2[1]
+            + t**3 * p3[1]
+        )
+        samples.append((int(px), int(py)))
+
+    stroke = max(28, int(min(w, h) * 0.12))
+
+    draw.line(
+        samples,
+        fill=255,
+        width=stroke,
+        joint="curve",
+    )
+
+    radius = stroke // 2
+    for px, py in (samples[0], samples[-1]):
+        draw.ellipse(
+            (px - radius, py - radius, px + radius, py + radius),
+            fill=255,
+        )
+
+    gradient = _premium_gradient(
+        canvas.size,
+        [p["primary"], p["secondary"], p["accent"]],
+        horizontal=True,
+    )
+
+    canvas.paste(gradient, (0, 0), mask)
+
+    # Parallel return path turns the gesture into a mark rather than a line.
+    draw_canvas = ImageDraw.Draw(canvas)
+    draw_canvas.arc(
+        (
+            int(cx - w * 0.24),
+            int(cy - h * 0.13),
+            int(cx + w * 0.30),
+            int(cy + h * 0.28),
+        ),
+        start=198,
+        end=334,
+        fill=p["accent"],
+        width=max(10, stroke // 4),
+    )
+
+    _v4_accent(canvas, p, box)
+
+
+def _v4_infinity_loop(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+
+    mask = Image.new("L", canvas.size, 0)
+    draw = ImageDraw.Draw(mask)
+
+    samples = []
+
+    # Gerono lemniscate.
+    for i in range(121):
+        t = 2 * math.pi * i / 120
+        px = cx + math.sin(t) * w * 0.34
+        py = cy + math.sin(t) * math.cos(t) * h * 0.34
+        samples.append((int(px), int(py)))
+
+    stroke = max(25, int(min(w, h) * 0.10))
+
+    draw.line(
+        samples,
+        fill=255,
+        width=stroke,
+        joint="curve",
+    )
+
+    gradient = _premium_gradient(
+        canvas.size,
+        [p["primary"], p["secondary"], p["accent"]],
+        horizontal=True,
+    )
+
+    canvas.paste(gradient, (0, 0), mask)
+
+    # Crossing facet makes the over/under construction deliberate.
+    canvas_draw = ImageDraw.Draw(canvas)
+    canvas_draw.line(
+        [
+            (int(cx - w * 0.06), int(cy + h * 0.02)),
+            (int(cx + w * 0.07), int(cy - h * 0.06)),
+        ],
+        fill=p["accent"],
+        width=max(12, stroke // 2),
+    )
+
+    _v4_accent(canvas, p, box)
+
+
+def _v4_technical_ring(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    radius = min(w, h) * 0.36
+    draw = ImageDraw.Draw(canvas)
+
+    colors = [p["primary"], p["secondary"], p["accent"]]
+
+    for index, (start, end) in enumerate(
+        ((202, 300), (315, 435), (450, 548))
+    ):
+        inset = index * min(w, h) * 0.025
+        draw.arc(
+            (
+                int(cx - radius + inset),
+                int(cy - radius + inset),
+                int(cx + radius - inset),
+                int(cy + radius - inset),
+            ),
+            start=start,
+            end=end,
+            fill=colors[index],
+            width=max(10, int(radius * 0.065)),
+        )
+
+    letters = initials(business_name)
+    font = get_font(int(radius * 0.62), p["font_style"])
+    bbox = draw.textbbox((0, 0), letters, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    draw.text(
+        (int(cx - tw / 2), int(cy - th / 2 - bbox[1])),
+        letters,
+        font=font,
+        fill=_premium_ink(p),
+    )
+
+    # Precision ticks.
+    for angle in (-90, 0, 90, 180):
+        rad = math.radians(angle)
+        ax = cx + math.cos(rad) * radius * 1.08
+        ay = cy + math.sin(rad) * radius * 1.08
+        bx = cx + math.cos(rad) * radius * 1.18
+        by = cy + math.sin(rad) * radius * 1.18
+        draw.line(
+            [(int(ax), int(ay)), (int(bx), int(by))],
+            fill=p["accent"],
+            width=max(5, int(radius * 0.025)),
+        )
+
+
+def _v4_modular_symbol(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    radius = min(w, h) * 0.34
+
+    points = polygon_points(cx, cy, radius, 6, -90)
+
+    draw = ImageDraw.Draw(canvas)
+
+    for index in range(6):
+        a = points[index]
+        b = points[(index + 1) % 6]
+        color = (
+            p["primary"]
+            if index % 3 == 0
+            else p["secondary"]
+            if index % 3 == 1
+            else p["accent"]
+        )
+
+        draw.line(
+            [(int(a[0]), int(a[1])), (int(b[0]), int(b[1]))],
+            fill=color,
+            width=max(18, int(radius * 0.09)),
+        )
+
+    for index in (0, 2, 4):
+        px, py = points[index]
+        draw.line(
+            [(int(cx), int(cy)), (int(px), int(py))],
+            fill=p["secondary"],
+            width=max(11, int(radius * 0.055)),
+        )
+
+    hub = max(15, int(radius * 0.09))
+
+    draw.ellipse(
+        (
+            int(cx - hub),
+            int(cy - hub),
+            int(cx + hub),
+            int(cy + hub),
+        ),
+        fill=p["accent"],
+    )
+
+    _v4_accent(canvas, p, box)
+
+
+def _v4_structured_badge(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    radius = min(w, h) * 0.37
+
+    draw = ImageDraw.Draw(canvas)
+
+    outer = polygon_points(cx, cy, radius, 6, -90)
+
+    draw.line(
+        [(int(x), int(y)) for x, y in outer + [outer[0]]],
+        fill=p["secondary"],
+        width=max(18, int(radius * 0.08)),
+        joint="curve",
+    )
+
+    inner_radius = radius * 0.73
+
+    draw.ellipse(
+        (
+            int(cx - inner_radius),
+            int(cy - inner_radius),
+            int(cx + inner_radius),
+            int(cy + inner_radius),
+        ),
+        outline=p["primary"],
+        width=max(10, int(radius * 0.045)),
+    )
+
+    letters = initials(business_name)
+    font = get_font(int(radius * 0.72), p["font_style"])
+    bbox = draw.textbbox((0, 0), letters, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    draw.text(
+        (int(cx - tw / 2), int(cy - th / 2 - bbox[1])),
+        letters,
+        font=font,
+        fill=_premium_ink(p),
+    )
+
+    _v4_accent(canvas, p, box)
+
+
+def _v4_concept_pictogram(canvas, p, business_name, box):
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    draw = ImageDraw.Draw(canvas)
+
+    motif = p.get("accent_motif", "light")
+
+    if motif in {"leaf", "growth"}:
+        leaf_w = w * 0.23
+        leaf_h = h * 0.31
+
+        draw.ellipse(
+            (
+                int(cx - leaf_w),
+                int(cy - leaf_h),
+                int(cx + leaf_w),
+                int(cy + leaf_h),
+            ),
+            fill=p["secondary"],
+        )
+
+        draw.polygon(
+            [
+                (int(cx - leaf_w), int(cy + leaf_h)),
+                (int(cx + leaf_w), int(cy - leaf_h)),
+                (int(cx + leaf_w), int(cy + leaf_h)),
+            ],
+            fill=_premium_background(p),
+        )
+
+        draw.line(
+            [
+                (int(cx - w * 0.13), int(cy + h * 0.20)),
+                (int(cx + w * 0.14), int(cy - h * 0.19)),
+            ],
+            fill=p["accent"],
+            width=max(10, int(min(w, h) * 0.025)),
+        )
+
+    elif motif in {"connection", "node"}:
+        nodes = [
+            (cx, cy - h * 0.25),
+            (cx + w * 0.23, cy + h * 0.13),
+            (cx - w * 0.23, cy + h * 0.13),
+        ]
+
+        for i in range(3):
+            a = nodes[i]
+            b = nodes[(i + 1) % 3]
+            draw.line(
+                [(int(a[0]), int(a[1])), (int(b[0]), int(b[1]))],
+                fill=p["secondary"],
+                width=max(12, int(min(w, h) * 0.035)),
+            )
+
+        r = min(w, h) * 0.055
+        for i, (px, py) in enumerate(nodes):
+            draw.ellipse(
+                (
+                    int(px - r),
+                    int(py - r),
+                    int(px + r),
+                    int(py + r),
+                ),
+                fill=p["accent"] if i == 0 else p["primary"],
+            )
+
+    else:
+        # Light/discovery pictogram: clean bulb-like outline with spark core.
+        radius = min(w, h) * 0.24
+
+        draw.arc(
+            (
+                int(cx - radius),
+                int(cy - radius * 1.15),
+                int(cx + radius),
+                int(cy + radius * 0.85),
+            ),
+            start=195,
+            end=525,
+            fill=p["secondary"],
+            width=max(16, int(radius * 0.08)),
+        )
+
+        draw.line(
+            [
+                (int(cx - radius * 0.33), int(cy + radius * 0.78)),
+                (int(cx + radius * 0.33), int(cy + radius * 0.78)),
+            ],
+            fill=p["accent"],
+            width=max(10, int(radius * 0.06)),
+        )
+
+        _v4_accent(canvas, p, box)
+
+
+def _v4_swoosh_wordmark_symbol(canvas, p, business_name, box):
+    # Typography-led concepts intentionally use only a restrained motion
+    # accent here; the wordmark remains the dominant identity.
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+
+    draw = ImageDraw.Draw(canvas)
+
+    draw.arc(
+        (
+            int(x0 + w * 0.12),
+            int(y0 + h * 0.28),
+            int(x1 - w * 0.12),
+            int(y1 - h * 0.17),
+        ),
+        start=205,
+        end=338,
+        fill=p["secondary"],
+        width=max(14, int(min(w, h) * 0.045)),
+    )
+
+    _v4_accent(canvas, p, box)
+
+
+def _draw_v4_group_bc_symbol(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    construction = parameters.get("construction", "")
+
+    renderers = {
+        "orbital-spark": _v4_orbital_spark,
+        "continuous-flow": _v4_continuous_flow,
+        "infinity-loop": _v4_infinity_loop,
+        "technical-ring": _v4_technical_ring,
+        "modular-symbol": _v4_modular_symbol,
+        "structured-badge": _v4_structured_badge,
+        "concept-pictogram": _v4_concept_pictogram,
+        "swoosh-wordmark": _v4_swoosh_wordmark_symbol,
+    }
+
+    renderer = renderers.get(construction)
+
+    if renderer is None:
+        return False
+
+    renderer(
+        canvas,
+        parameters,
+        business_name,
+        box,
+    )
+
+    return True
+
 def _draw_premium_symbol(canvas, parameters, business_name, box):
+    # V4 semantic construction families take precedence over the
+    # older V3 symbol-family router. Returning here is essential:
+    # otherwise the V3 fallback would draw over the V4 symbol.
+    if _draw_v4_group_a_symbol(
+        canvas,
+        parameters,
+        business_name,
+        box,
+    ):
+        return
+
+    if _draw_v4_group_bc_symbol(
+        canvas,
+        parameters,
+        business_name,
+        box,
+    ):
+        return
+
     family = parameters["symbol_family"]
 
     if family == "ribbon-monogram":
@@ -2178,7 +3202,18 @@ def _render_premium_png(
     )
 
     layout = parameters["layout"]
-    horizontal = layout == "symbol-left"
+    presentation = parameters.get(
+        "presentation_layout",
+        "",
+    )
+
+    horizontal = (
+        presentation == "horizontal"
+        or (
+            not presentation
+            and layout == "symbol-left"
+        )
+    )
 
     if horizontal:
         symbol_box = (65, 285, 515, 735)

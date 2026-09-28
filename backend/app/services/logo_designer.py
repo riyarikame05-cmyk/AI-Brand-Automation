@@ -703,6 +703,10 @@ Use exactly this schema:
 {{
     "logo_type": "<allowed value>",
     "symbol_family": "<ribbon-monogram, fused-lettermark, negative-space, geometric-network, orbital-motion, or structured-emblem>",
+    "construction": "<ribbon-fusion, sharp-fusion, negative-space-letter, folded-letter, modular-symbol, orbital-spark, continuous-flow, infinity-loop, technical-ring, structured-badge, concept-pictogram, or swoosh-wordmark>",
+    "accent_motif": "<spark, node, arc, cut, leaf, light, growth, connection, motion, or none>",
+    "typography_personality": "<modern, geometric, elegant, classic, or bold>",
+    "presentation_layout": "<stacked, horizontal, emblem, or typography-led>",
     "treatment": "<flat or premium-gradient>",
     "background_mode": "<light or dark>",
     "wordmark_emphasis": "<single, split, or accent-terminal>",
@@ -758,6 +762,44 @@ Use meaningful business-specific symbolism.
 
 Choose symbol_family according to the actual business concept rather
 than selecting one arbitrarily.
+
+Choose construction according to both the assigned creative direction
+and the meaning of the business. A batch must contain materially
+different construction systems rather than cosmetic variations of one
+symbol.
+
+Construction guidance:
+
+- ribbon-fusion: flowing or interwoven monogram
+- sharp-fusion: angular fused initials
+- negative-space-letter: initials revealed through cutout geometry
+- folded-letter: folded geometric letter construction
+- modular-symbol: connected modular geometric identity
+- orbital-spark: circular/orbital identity with purposeful accent
+- continuous-flow: one flowing abstract path
+- infinity-loop: interwoven continuous loop
+- technical-ring: precise circular technical identity
+- structured-badge: authoritative contained emblem
+- concept-pictogram: simple business-specific conceptual symbol
+- swoosh-wordmark: motion element integrated with the company name
+
+Choose accent_motif only when it reinforces the business concept.
+Do not add a spark, leaf, node or arc merely as decoration.
+
+Choose typography_personality according to brand positioning:
+
+- modern: clean contemporary sans serif
+- geometric: disciplined geometric appearance
+- elegant: refined high-contrast or serif appearance
+- classic: established traditional typography
+- bold: strong contemporary display typography
+
+Choose presentation_layout according to the concept:
+
+- stacked: symbol above wordmark
+- horizontal: symbol beside wordmark
+- emblem: contained badge-oriented identity
+- typography-led: wordmark is the primary identity element
 
 Use premium-gradient only when it improves the requested identity.
 A premium gradient must use ONLY the selected primary, secondary and
@@ -1221,6 +1263,127 @@ def sanitize_specification(
         wordmark_emphasis = "single"
 
     # -----------------------------------------------------
+    # PREMIUM V4 IDENTITY SYSTEM
+    # -----------------------------------------------------
+
+    allowed_constructions = {
+        "ribbon-fusion",
+        "sharp-fusion",
+        "negative-space-letter",
+        "folded-letter",
+        "modular-symbol",
+        "orbital-spark",
+        "continuous-flow",
+        "infinity-loop",
+        "technical-ring",
+        "structured-badge",
+        "concept-pictogram",
+        "swoosh-wordmark",
+    }
+
+    direction_construction_defaults = {
+        "minimal-geometric": "modular-symbol",
+        "negative-space": "negative-space-letter",
+        "monogram": "sharp-fusion",
+        "abstract-motion": "continuous-flow",
+        "wordmark": "swoosh-wordmark",
+        "brand-emblem": "structured-badge",
+    }
+
+    construction = str(
+        specification.get(
+            "construction",
+            "",
+        )
+        or ""
+    ).strip().lower()
+
+    if construction not in allowed_constructions:
+        construction = direction_construction_defaults.get(
+            direction["name"],
+            "modular-symbol",
+        )
+
+    allowed_accent_motifs = {
+        "spark",
+        "node",
+        "arc",
+        "cut",
+        "leaf",
+        "light",
+        "growth",
+        "connection",
+        "motion",
+        "none",
+    }
+
+    accent_motif = str(
+        specification.get(
+            "accent_motif",
+            "none",
+        )
+        or "none"
+    ).strip().lower()
+
+    if accent_motif not in allowed_accent_motifs:
+        accent_motif = "none"
+
+    allowed_typography = {
+        "modern",
+        "geometric",
+        "elegant",
+        "classic",
+        "bold",
+    }
+
+    typography_personality = str(
+        specification.get(
+            "typography_personality",
+            "modern",
+        )
+        or "modern"
+    ).strip().lower()
+
+    if typography_personality not in allowed_typography:
+        typography_personality = "modern"
+
+    allowed_presentations = {
+        "stacked",
+        "horizontal",
+        "emblem",
+        "typography-led",
+    }
+
+    presentation_layout = str(
+        specification.get(
+            "presentation_layout",
+            "",
+        )
+        or ""
+    ).strip().lower()
+
+    if presentation_layout not in allowed_presentations:
+        layout_defaults = {
+            "symbol-top": "stacked",
+            "symbol-left": "horizontal",
+            "wordmark": "typography-led",
+            "emblem": "emblem",
+        }
+
+        presentation_layout = layout_defaults.get(
+            layout,
+            "stacked",
+        )
+
+    # Keep direction identity strong even if the language model returns a
+    # presentation that conflicts with the assigned family.
+    if direction["name"] == "wordmark":
+        presentation_layout = "typography-led"
+
+    if direction["name"] == "brand-emblem":
+        presentation_layout = "emblem"
+
+    # -----------------------------------------------------
     # RESULT
     # -----------------------------------------------------
 
@@ -1230,6 +1393,18 @@ def sanitize_specification(
 
         "symbol_family":
             symbol_family,
+
+        "construction":
+            construction,
+
+        "accent_motif":
+            accent_motif,
+
+        "typography_personality":
+            typography_personality,
+
+        "presentation_layout":
+            presentation_layout,
 
         "treatment":
             treatment,
