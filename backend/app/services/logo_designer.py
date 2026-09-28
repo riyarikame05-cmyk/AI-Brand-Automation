@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import random
@@ -296,8 +296,7 @@ def sanitize_flat_logo_specification(specification: dict) -> dict:
         return {}
 
     replacements = {
-        "gradients": "flat solid color regions",
-        "gradient": "flat solid color",
+        "uncontrolled gradients": "controlled palette gradient",
         "3d effects": "flat vector forms",
         "3d effect": "flat vector form",
         "3d render": "flat vector artwork",
@@ -620,7 +619,8 @@ The design must:
 - contain limited visual detail
 - use no more than three brand colors
 - maintain strong foreground/background contrast
-- work on a white background
+- work on the requested light or dark presentation background
+- remain identifiable when converted to one-color artwork
 
 Never use:
 
@@ -629,7 +629,7 @@ Never use:
 - humans
 - mascots
 - 3D effects
-- gradients
+- uncontrolled rainbow gradients
 - shadows
 - glow
 - glass effects
@@ -702,6 +702,10 @@ Use exactly this schema:
 
 {{
     "logo_type": "<allowed value>",
+    "symbol_family": "<ribbon-monogram, fused-lettermark, negative-space, geometric-network, orbital-motion, or structured-emblem>",
+    "treatment": "<flat or premium-gradient>",
+    "background_mode": "<light or dark>",
+    "wordmark_emphasis": "<single, split, or accent-terminal>",
     "shape": "<allowed value>",
     "layout": "<allowed value>",
     "font_style": "<allowed value>",
@@ -751,6 +755,20 @@ Prefer layout:
 {direction["preferred_layout"]}
 
 Use meaningful business-specific symbolism.
+
+Choose symbol_family according to the actual business concept rather
+than selecting one arbitrarily.
+
+Use premium-gradient only when it improves the requested identity.
+A premium gradient must use ONLY the selected primary, secondary and
+accent brand colors as gradient stops. Never invent rainbow colors.
+
+Use dark background presentation only when it strengthens contrast
+and the requested identity. The underlying symbol must remain usable
+on light backgrounds as well.
+
+For split or accent-terminal wordmarks, color emphasis must reinforce
+readability. Never split the company name into misleading words.
 
 Every HEX value must contain exactly six hexadecimal digits.
 
@@ -1124,12 +1142,103 @@ def sanitize_specification(
         ]
 
     # -----------------------------------------------------
+    # PREMIUM V3 PRESENTATION
+    # -----------------------------------------------------
+
+    allowed_symbol_families = {
+        "ribbon-monogram",
+        "fused-lettermark",
+        "negative-space",
+        "geometric-network",
+        "orbital-motion",
+        "structured-emblem",
+    }
+
+    symbol_family = str(
+        specification.get(
+            "symbol_family",
+            "",
+        )
+        or ""
+    ).strip().lower()
+
+    if symbol_family not in allowed_symbol_families:
+        family_defaults = {
+            "minimal-geometric": "geometric-network",
+            "negative-space": "negative-space",
+            "monogram": "fused-lettermark",
+            "abstract-motion": "orbital-motion",
+            "wordmark": "fused-lettermark",
+            "brand-emblem": "structured-emblem",
+        }
+
+        symbol_family = family_defaults.get(
+            direction["name"],
+            "geometric-network",
+        )
+
+    treatment = str(
+        specification.get(
+            "treatment",
+            "flat",
+        )
+        or "flat"
+    ).strip().lower()
+
+    if treatment not in {
+        "flat",
+        "premium-gradient",
+    }:
+        treatment = "flat"
+
+    background_mode = str(
+        specification.get(
+            "background_mode",
+            "light",
+        )
+        or "light"
+    ).strip().lower()
+
+    if background_mode not in {
+        "light",
+        "dark",
+    }:
+        background_mode = "light"
+
+    wordmark_emphasis = str(
+        specification.get(
+            "wordmark_emphasis",
+            "single",
+        )
+        or "single"
+    ).strip().lower()
+
+    if wordmark_emphasis not in {
+        "single",
+        "split",
+        "accent-terminal",
+    }:
+        wordmark_emphasis = "single"
+
+    # -----------------------------------------------------
     # RESULT
     # -----------------------------------------------------
 
     return {
         "logo_type":
             logo_type,
+
+        "symbol_family":
+            symbol_family,
+
+        "treatment":
+            treatment,
+
+        "background_mode":
+            background_mode,
+
+        "wordmark_emphasis":
+            wordmark_emphasis,
 
         "shape":
             shape,
