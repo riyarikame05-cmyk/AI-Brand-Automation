@@ -502,12 +502,16 @@ def generate_image(
 
         auto
           -> Replicate when configured
-          -> FLUX/Pollinations
           -> deterministic local logo renderer
 
-    Successful cloud logo artwork is passed through
-    compose_cloud_logo(), which adds the exact business name
-    and deterministic typography.
+    Pollinations is intentionally skipped for master-logo
+    artwork in auto mode because its output is not reliable
+    enough for flat, unbranded production logo symbols.
+
+    Successful Replicate logo artwork is passed through
+    compose_cloud_logo(), which applies the cloud-logo
+    quality gate and adds the exact business name with
+    deterministic typography.
 
     For campaign images:
 
@@ -516,48 +520,31 @@ def generate_image(
           -> FLUX/Pollinations
 
     Local campaign rendering is not currently implemented.
+
+    Explicit provider selection remains available. In
+    particular, provider="flux" still calls Pollinations,
+    but auto mode will not use it for master-logo symbols.
     """
 
-    selected = (
-        provider
-        or DEFAULT_PROVIDER
-        or "local"
-    )
+    selected = provider or DEFAULT_PROVIDER or "local"
+    selected = str(selected).strip().lower()
 
-    selected = (
-        str(selected)
-        .strip()
-        .lower()
-    )
+    purpose = _get_purpose(kwargs)
 
-    purpose = _get_purpose(
-        kwargs
-    )
-
-    print(
-        f"[IMAGE] Selected provider: {selected}"
-    )
-
-    print(
-        f"[IMAGE] Purpose: {purpose}"
-    )
+    print(f"[IMAGE] Selected provider: {selected}")
+    print(f"[IMAGE] Purpose: {purpose}")
 
     # =====================================================
     # EXPLICIT LOCAL
     # =====================================================
 
     if selected == "local":
-
         if purpose == "symbol":
-
             print(
                 "[IMAGE] Using deterministic "
                 "local logo renderer."
             )
-
-            return generate_local_image(
-                **kwargs
-            )
+            return generate_local_image(**kwargs)
 
         raise RuntimeError(
             "Local campaign image generation "
@@ -565,44 +552,31 @@ def generate_image(
         )
 
     # =====================================================
-    # EXPLICIT FLUX
+    # EXPLICIT FLUX / POLLINATIONS
     # =====================================================
 
     if selected == "flux":
-
-        print(
-            "[IMAGE] Using FLUX/Pollinations."
-        )
-
-        return generate_flux_image(
-            **kwargs
-        )
+        print("[IMAGE] Using FLUX/Pollinations.")
+        return generate_flux_image(**kwargs)
 
     # =====================================================
     # EXPLICIT REPLICATE
     # =====================================================
 
     if selected == "replicate":
-
         if not _replicate_configured():
             raise RuntimeError(
                 "Replicate is not configured."
             )
 
-        print(
-            "[IMAGE] Using Replicate."
-        )
-
-        return generate_replicate_provider_image(
-            **kwargs
-        )
+        print("[IMAGE] Using Replicate.")
+        return generate_replicate_provider_image(**kwargs)
 
     # =====================================================
     # AUTO
     # =====================================================
 
     if selected == "auto":
-
         errors = []
 
         # -------------------------------------------------
@@ -610,123 +584,101 @@ def generate_image(
         # -------------------------------------------------
 
         if _replicate_configured():
-
             try:
+                print("[IMAGE] Trying Replicate...")
 
-                print(
-                    "[IMAGE] Trying Replicate..."
+                result = generate_replicate_provider_image(
+                    **kwargs
                 )
 
-                result = (
-                    generate_replicate_provider_image(
-                        **kwargs
-                    )
-                )
-
-                print(
-                    "[IMAGE] Replicate succeeded."
-                )
-
+                print("[IMAGE] Replicate succeeded.")
                 return result
 
             except Exception as error:
-
                 print(
                     "[IMAGE] Replicate failed:",
                     repr(error),
                 )
-
                 errors.append(
                     f"replicate: {error}"
                 )
-
         else:
-
-            print(
-                "[IMAGE] Replicate not configured."
-            )
+            print("[IMAGE] Replicate not configured.")
 
         # -------------------------------------------------
-        # 2. FLUX / POLLINATIONS
-        # -------------------------------------------------
-
-        try:
-
-            print(
-                "[IMAGE] Trying FLUX/Pollinations..."
-            )
-
-            result = generate_flux_image(
-                **kwargs
-            )
-
-            print(
-                "[IMAGE] FLUX/Pollinations succeeded."
-            )
-
-            return result
-
-        except Exception as error:
-
-            print(
-                "[IMAGE] FLUX/Pollinations failed:",
-                repr(error),
-            )
-
-            errors.append(
-                f"flux: {error}"
-            )
-
-        # -------------------------------------------------
-        # 3. LOCAL LOGO FALLBACK
+        # 2A. MASTER LOGO: LOCAL FALLBACK
         # -------------------------------------------------
 
         if purpose == "symbol":
+            print(
+                "[IMAGE] Pollinations skipped for "
+                "master-logo symbols in auto mode."
+            )
 
             try:
-
-                print(
-                    "[IMAGE] Cloud logo providers unavailable."
-                )
-
                 print(
                     "[IMAGE] Falling back to deterministic "
                     "local logo renderer..."
                 )
 
-                result = generate_local_image(
-                    **kwargs
-                )
+                result = generate_local_image(**kwargs)
 
                 print(
                     "[IMAGE] Local logo fallback succeeded."
                 )
-
                 return result
 
             except Exception as error:
-
                 print(
                     "[IMAGE] Local logo fallback failed:",
                     repr(error),
                 )
-
                 errors.append(
                     f"local: {error}"
                 )
 
+            raise RuntimeError(
+                "Logo generation failed. "
+                + " | ".join(errors)
+            )
+
         # -------------------------------------------------
-        # NOTHING SUCCEEDED
+        # 2B. CAMPAIGN: FLUX / POLLINATIONS
         # -------------------------------------------------
 
-        raise RuntimeError(
-            "Image generation failed. "
-            + " | ".join(errors)
+        if purpose == "campaign":
+            try:
+                print(
+                    "[IMAGE] Trying FLUX/Pollinations "
+                    "for campaign image..."
+                )
+
+                result = generate_flux_image(**kwargs)
+
+                print(
+                    "[IMAGE] FLUX/Pollinations "
+                    "campaign generation succeeded."
+                )
+                return result
+
+            except Exception as error:
+                print(
+                    "[IMAGE] FLUX/Pollinations failed:",
+                    repr(error),
+                )
+                errors.append(
+                    f"flux: {error}"
+                )
+
+            raise RuntimeError(
+                "Campaign image generation failed. "
+                + " | ".join(errors)
+            )
+
+        raise ValueError(
+            f"Unknown image purpose: {purpose}"
         )
 
     raise ValueError(
         f"Unknown image provider: {selected}"
     )
-
-
-
