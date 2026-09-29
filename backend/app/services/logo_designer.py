@@ -5,6 +5,9 @@ import random
 import uuid
 
 import requests
+from app.services.logo_identity_engine import generate_identity_briefs
+from app.services.logo_industry_design import choose_design_language
+
 
 
 # =========================================================
@@ -382,6 +385,11 @@ def generate_logo_specification(
         direction_index = random.randrange(
             len(CREATIVE_DIRECTIONS)
         )
+
+    # V5 preserves the caller's raw concept position so 3 / 6 / 9
+    # generations can use distinct identity strategies even though the
+    # legacy V4 creative-direction system contains six directions.
+    v5_concept_index = int(direction_index)
 
     direction_index = (
         direction_index
@@ -937,6 +945,85 @@ stroke_width must be 8 through 35.
     # Rendering remains deterministic for saved assets, while a new logo
     # generation request receives a fresh identity and therefore can produce
     # a different local construction variant even for the same business.
+
+    # -----------------------------------------------------
+    # V5 PREMIUM IDENTITY INTELLIGENCE
+    # -----------------------------------------------------
+    #
+    # V4.2 remains fully compatible. These fields enrich the persisted
+    # specification so the next renderer milestone can execute premium,
+    # industry-specific construction rather than infer meaning again.
+    semantic_profile = infer_industry_semantics(
+        industry=industry,
+        description=description,
+    )
+
+    v5_family = semantic_profile["industry_family"]
+
+    v5_briefs = generate_identity_briefs(
+        business_name=business_name,
+        industry_family=v5_family,
+        description=description,
+        personality=style,
+        count=9,
+        variant_seed=generation_id,
+    )
+
+    v5_brief = v5_briefs[
+        v5_concept_index % len(v5_briefs)
+    ]
+
+    v5_language = choose_design_language(
+        family=v5_family,
+        business_name=business_name,
+        description=description,
+        strategy=v5_brief["strategy"],
+        variant_seed=v5_brief["variant_key"],
+    )
+
+    sanitized["identity_strategy"] = v5_brief["strategy"]
+    sanitized["semantic_territory"] = v5_brief["territory"]
+    sanitized["secondary_territory"] = (
+        v5_brief["secondary_territory"]
+    )
+    sanitized["identity_construction"] = (
+        v5_brief["construction"]
+    )
+    sanitized["semantic_method"] = (
+        v5_brief["semantic_method"]
+    )
+    sanitized["silhouette_target"] = (
+        v5_brief["silhouette"]
+    )
+    sanitized["initial_role"] = (
+        v5_brief["initial_role"]
+    )
+    sanitized["geometry_character"] = (
+        v5_brief["geometry_character"]
+    )
+
+    sanitized["industry_form"] = v5_language["form"]
+    sanitized["negative_space_idea"] = (
+        v5_language["negative_space"]
+    )
+    sanitized["motion_language"] = (
+        v5_language["motion"]
+    )
+    sanitized["geometry_language"] = (
+        v5_language["geometry"]
+    )
+
+    sanitized["avoid_cliches"] = list(
+        dict.fromkeys(
+            list(semantic_profile.get("avoid_cliches", ()))
+            + list(v5_language.get("avoid", ()))
+        )
+    )
+
+    sanitized["v5_variant_key"] = (
+        v5_brief["variant_key"]
+    )
+
     sanitized["variant_seed"] = generation_id
 
     return sanitized
