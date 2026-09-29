@@ -405,6 +405,21 @@ def build_parameters(specification):
         "presentation_layout": str(
             specification.get("presentation_layout") or ""
         ).strip().lower(),
+        "industry_family": str(
+            specification.get("industry_family") or "other"
+        ).strip().lower(),
+        "industry_subtype": str(
+            specification.get("industry_subtype") or ""
+        ).strip().lower(),
+        "semantic_motif": str(
+            specification.get("semantic_motif") or "none"
+        ).strip().lower(),
+        "secondary_motif": str(
+            specification.get("secondary_motif") or "none"
+        ).strip().lower(),
+        "metaphor_mode": str(
+            specification.get("metaphor_mode") or ""
+        ).strip().lower(),
     }
 
 
@@ -3275,7 +3290,539 @@ def _draw_v4_group_bc_symbol(
 
     return True
 
+
+def _draw_v42_semantic_symbol(
+    canvas,
+    parameters,
+    business_name,
+    box,
+):
+    """
+    Draw a restrained industry-relevant symbol when the specification asks
+    for an industry/conceptual metaphor. Returns True when handled.
+
+    These are reusable visual primitives, not stock icons. Monogram,
+    negative-space, typography-led and emblem directions can continue
+    through the established V4 construction engine.
+    """
+    mode = parameters.get("metaphor_mode", "")
+    motif = parameters.get("semantic_motif", "none")
+    family = parameters.get("industry_family", "other")
+
+    if mode not in {"industry-symbol", "conceptual"}:
+        return False
+
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    scale = min(w, h)
+    seed = parameters.get("seed", 0)
+
+    draw = ImageDraw.Draw(canvas)
+    primary = parameters["primary"]
+    secondary = parameters["secondary"]
+    accent = parameters["accent"]
+    background = _premium_background(parameters)
+
+    # --------------------------------------------------------
+    # COFFEE / FOOD ? organic bean / steam language
+    # --------------------------------------------------------
+    if family == "coffee" or motif in {"bean", "steam", "roast"}:
+        bean_w = scale * 0.23
+        bean_h = scale * 0.31
+        bean_cx = cx
+        bean_cy = cy + scale * 0.06
+
+        draw.ellipse(
+            (
+                int(bean_cx - bean_w),
+                int(bean_cy - bean_h),
+                int(bean_cx + bean_w),
+                int(bean_cy + bean_h),
+            ),
+            fill=secondary,
+        )
+
+        # Bean groove.
+        draw.arc(
+            (
+                int(bean_cx - bean_w * 0.35),
+                int(bean_cy - bean_h * 0.82),
+                int(bean_cx + bean_w * 0.55),
+                int(bean_cy + bean_h * 0.82),
+            ),
+            start=100,
+            end=260,
+            fill=background,
+            width=max(10, int(scale * 0.025)),
+        )
+
+        # Steam becomes a clean flowing identity stroke.
+        for offset, color in ((-0.07, primary), (0.07, accent)):
+            sx = cx + scale * offset
+            draw.arc(
+                (
+                    int(sx - scale * 0.10),
+                    int(cy - scale * 0.42),
+                    int(sx + scale * 0.10),
+                    int(cy - scale * 0.05),
+                ),
+                start=205,
+                end=338,
+                fill=color,
+                width=max(10, int(scale * 0.025)),
+            )
+
+        return True
+
+    # --------------------------------------------------------
+    # MUSIC / AUDIO ? waveform + groove, not literal music note
+    # --------------------------------------------------------
+    if family == "music-audio" or motif in {
+        "wave", "pulse", "groove", "rhythm",
+        "frequency", "resonance",
+    }:
+        mask = Image.new("L", canvas.size, 0)
+        mask_draw = ImageDraw.Draw(mask)
+
+        samples = []
+        amplitude = _seed_fraction(seed, 610, 0.16, 0.23)
+
+        for index in range(81):
+            t = index / 80
+            px = x0 + w * (0.13 + 0.74 * t)
+            envelope = math.sin(math.pi * t)
+            py = cy + math.sin(t * math.pi * 4) * h * amplitude * envelope
+            samples.append((int(px), int(py)))
+
+        mask_draw.line(
+            samples,
+            fill=255,
+            width=max(18, int(scale * 0.065)),
+            joint="curve",
+        )
+
+        gradient = _premium_gradient(
+            canvas.size,
+            [primary, secondary, accent],
+            horizontal=True,
+        )
+        canvas.paste(gradient, (0, 0), mask)
+
+        # Groove/rhythm ring gives the waveform a compact silhouette.
+        draw.arc(
+            (
+                int(cx - scale * 0.31),
+                int(cy - scale * 0.31),
+                int(cx + scale * 0.31),
+                int(cy + scale * 0.31),
+            ),
+            start=210,
+            end=505,
+            fill=secondary,
+            width=max(8, int(scale * 0.018)),
+        )
+
+        return True
+
+    # --------------------------------------------------------
+    # HEALTH / WELLNESS ? continuity + organic care
+    # --------------------------------------------------------
+    if family == "healthcare" or motif in {
+        "care", "wellbeing", "continuity", "human",
+    }:
+        radius = scale * 0.23
+
+        draw.arc(
+            (
+                int(cx - radius * 1.4),
+                int(cy - radius),
+                int(cx + radius * 0.25),
+                int(cy + radius),
+            ),
+            start=215,
+            end=510,
+            fill=primary,
+            width=max(18, int(scale * 0.055)),
+        )
+
+        draw.arc(
+            (
+                int(cx - radius * 0.25),
+                int(cy - radius),
+                int(cx + radius * 1.4),
+                int(cy + radius),
+            ),
+            start=30,
+            end=325,
+            fill=secondary,
+            width=max(18, int(scale * 0.055)),
+        )
+
+        r = scale * 0.045
+        draw.ellipse(
+            (
+                int(cx - r),
+                int(cy - radius * 1.25 - r),
+                int(cx + r),
+                int(cy - radius * 1.25 + r),
+            ),
+            fill=accent,
+        )
+        return True
+
+    # --------------------------------------------------------
+    # REAL ESTATE / ARCHITECTURE ? doorway / structure
+    # --------------------------------------------------------
+    if family == "real-estate" or motif in {
+        "doorway", "roof", "structure", "foundation", "skyline",
+    }:
+        left = cx - scale * 0.27
+        right = cx + scale * 0.27
+        top = cy - scale * 0.28
+        bottom = cy + scale * 0.28
+
+        stroke = max(14, int(scale * 0.045))
+
+        draw.line(
+            [
+                (int(left), int(bottom)),
+                (int(left), int(cy - scale * 0.06)),
+                (int(cx), int(top)),
+                (int(right), int(cy - scale * 0.06)),
+                (int(right), int(bottom)),
+            ],
+            fill=primary,
+            width=stroke,
+            joint="curve",
+        )
+
+        # Negative/open doorway.
+        door_w = scale * 0.13
+        draw.rectangle(
+            (
+                int(cx - door_w),
+                int(cy + scale * 0.02),
+                int(cx + door_w),
+                int(bottom),
+            ),
+            fill=background,
+        )
+
+        draw.line(
+            [
+                (int(left - scale * 0.06), int(bottom)),
+                (int(right + scale * 0.06), int(bottom)),
+            ],
+            fill=accent,
+            width=max(9, stroke // 2),
+        )
+        return True
+
+    # --------------------------------------------------------
+    # TRAVEL + LOGISTICS ? route / destination / forward motion
+    # --------------------------------------------------------
+    if family in {"travel-hospitality", "logistics"} or motif in {
+        "route", "destination", "journey", "forward", "movement",
+    }:
+        points = [
+            (int(x0 + w * 0.16), int(cy + h * 0.16)),
+            (int(x0 + w * 0.36), int(cy - h * 0.16)),
+            (int(x0 + w * 0.58), int(cy + h * 0.07)),
+            (int(x0 + w * 0.82), int(cy - h * 0.13)),
+        ]
+
+        draw.line(
+            points,
+            fill=secondary,
+            width=max(18, int(scale * 0.055)),
+            joint="curve",
+        )
+
+        node_r = scale * 0.045
+
+        for index, (px, py) in enumerate((points[0], points[-1])):
+            draw.ellipse(
+                (
+                    int(px - node_r),
+                    int(py - node_r),
+                    int(px + node_r),
+                    int(py + node_r),
+                ),
+                fill=primary if index == 0 else accent,
+            )
+
+        # Forward arrow facet.
+        px, py = points[-1]
+        arrow = scale * 0.10
+        draw.polygon(
+            [
+                (px, py),
+                (int(px - arrow), int(py - arrow * 0.50)),
+                (int(px - arrow * 0.72), int(py + arrow * 0.62)),
+            ],
+            fill=accent,
+        )
+        return True
+
+    # --------------------------------------------------------
+    # AUTOMOTIVE / FITNESS ? aerodynamic performance gesture
+    # --------------------------------------------------------
+    if family in {"automotive", "fitness-sports"} or motif in {
+        "speed", "aerodynamic", "energy", "strength", "peak",
+    }:
+        stroke = max(18, int(scale * 0.06))
+
+        draw.arc(
+            (
+                int(cx - scale * 0.34),
+                int(cy - scale * 0.20),
+                int(cx + scale * 0.34),
+                int(cy + scale * 0.22),
+            ),
+            start=198,
+            end=340,
+            fill=primary,
+            width=stroke,
+        )
+
+        draw.arc(
+            (
+                int(cx - scale * 0.26),
+                int(cy - scale * 0.10),
+                int(cx + scale * 0.30),
+                int(cy + scale * 0.28),
+            ),
+            start=202,
+            end=330,
+            fill=accent,
+            width=max(10, stroke // 3),
+        )
+        return True
+
+    # --------------------------------------------------------
+    # NATURE / AGRICULTURE ? sprout / growth
+    # --------------------------------------------------------
+    if family == "nature-agriculture" or motif in {
+        "sprout", "earth", "organic-flow",
+    }:
+        stem = max(11, int(scale * 0.03))
+
+        draw.line(
+            [
+                (int(cx), int(cy + scale * 0.28)),
+                (int(cx), int(cy - scale * 0.10)),
+            ],
+            fill=primary,
+            width=stem,
+        )
+
+        draw.ellipse(
+            (
+                int(cx - scale * 0.28),
+                int(cy - scale * 0.28),
+                int(cx + scale * 0.02),
+                int(cy),
+            ),
+            fill=secondary,
+        )
+
+        draw.ellipse(
+            (
+                int(cx - scale * 0.02),
+                int(cy - scale * 0.34),
+                int(cx + scale * 0.29),
+                int(cy - scale * 0.04),
+            ),
+            fill=accent,
+        )
+        return True
+
+    # --------------------------------------------------------
+    # WATER ? abstract drop / flow
+    # --------------------------------------------------------
+    if family == "water" or motif in {"drop", "purity"}:
+        r = scale * 0.28
+
+        points = [
+            (cx, cy - r * 1.25),
+            (cx - r * 0.82, cy + r * 0.25),
+            (cx - r * 0.58, cy + r * 0.85),
+            (cx, cy + r),
+            (cx + r * 0.58, cy + r * 0.85),
+            (cx + r * 0.82, cy + r * 0.25),
+        ]
+
+        draw.polygon(
+            [(int(px), int(py)) for px, py in points],
+            fill=primary,
+        )
+
+        draw.arc(
+            (
+                int(cx - r * 0.55),
+                int(cy + r * 0.05),
+                int(cx + r * 0.55),
+                int(cy + r * 0.75),
+            ),
+            start=190,
+            end=350,
+            fill=accent,
+            width=max(10, int(scale * 0.025)),
+        )
+        return True
+
+    # --------------------------------------------------------
+    # ENERGY ? sun / renewable radiance
+    # --------------------------------------------------------
+    if family == "energy" or motif in {"sun", "ray", "power"}:
+        sun_r = scale * 0.18
+
+        draw.arc(
+            (
+                int(cx - sun_r),
+                int(cy - sun_r),
+                int(cx + sun_r),
+                int(cy + sun_r),
+            ),
+            start=180,
+            end=360,
+            fill=secondary,
+            width=max(18, int(scale * 0.055)),
+        )
+
+        for angle in range(200, 341, 28):
+            rad = math.radians(angle)
+            inner = sun_r * 1.32
+            outer = sun_r * 1.75
+
+            draw.line(
+                [
+                    (
+                        int(cx + math.cos(rad) * inner),
+                        int(cy + math.sin(rad) * inner),
+                    ),
+                    (
+                        int(cx + math.cos(rad) * outer),
+                        int(cy + math.sin(rad) * outer),
+                    ),
+                ],
+                fill=accent,
+                width=max(7, int(scale * 0.018)),
+            )
+
+        draw.line(
+            [
+                (int(cx - scale * 0.30), int(cy + scale * 0.18)),
+                (int(cx + scale * 0.30), int(cy + scale * 0.18)),
+            ],
+            fill=primary,
+            width=max(10, int(scale * 0.025)),
+        )
+        return True
+
+    # --------------------------------------------------------
+    # EDUCATION ? abstract open knowledge / rising light
+    # --------------------------------------------------------
+    if family == "education" or motif in {"knowledge", "book"}:
+        stroke = max(15, int(scale * 0.045))
+
+        draw.line(
+            [
+                (int(cx), int(cy + scale * 0.24)),
+                (int(cx - scale * 0.28), int(cy + scale * 0.08)),
+                (int(cx - scale * 0.28), int(cy - scale * 0.20)),
+                (int(cx), int(cy - scale * 0.04)),
+            ],
+            fill=primary,
+            width=stroke,
+            joint="curve",
+        )
+
+        draw.line(
+            [
+                (int(cx), int(cy + scale * 0.24)),
+                (int(cx + scale * 0.28), int(cy + scale * 0.08)),
+                (int(cx + scale * 0.28), int(cy - scale * 0.20)),
+                (int(cx), int(cy - scale * 0.04)),
+            ],
+            fill=secondary,
+            width=stroke,
+            joint="curve",
+        )
+
+        _v4_accent(canvas, parameters, box)
+        return True
+
+    # --------------------------------------------------------
+    # LEGAL / FINANCE / PROFESSIONAL ? balanced architecture
+    # --------------------------------------------------------
+    if family in {
+        "legal", "finance", "professional-services",
+    } or motif in {
+        "balance", "pillar", "authority", "trust",
+    }:
+        stroke = max(14, int(scale * 0.045))
+
+        draw.line(
+            [
+                (int(cx), int(cy - scale * 0.28)),
+                (int(cx), int(cy + scale * 0.25)),
+            ],
+            fill=primary,
+            width=stroke,
+        )
+
+        draw.line(
+            [
+                (int(cx - scale * 0.30), int(cy - scale * 0.12)),
+                (int(cx + scale * 0.30), int(cy - scale * 0.12)),
+            ],
+            fill=secondary,
+            width=stroke,
+        )
+
+        draw.arc(
+            (
+                int(cx - scale * 0.31),
+                int(cy - scale * 0.08),
+                int(cx - scale * 0.03),
+                int(cy + scale * 0.22),
+            ),
+            start=5,
+            end=175,
+            fill=accent,
+            width=max(8, stroke // 2),
+        )
+
+        draw.arc(
+            (
+                int(cx + scale * 0.03),
+                int(cy - scale * 0.08),
+                int(cx + scale * 0.31),
+                int(cy + scale * 0.22),
+            ),
+            start=5,
+            end=175,
+            fill=accent,
+            width=max(8, stroke // 2),
+        )
+        return True
+
+    return False
 def _draw_premium_symbol(canvas, parameters, business_name, box):
+    # V4.2 industry-aware concepts use semantic primitives when the
+    # specification explicitly requests an industry/conceptual symbol.
+    if _draw_v42_semantic_symbol(
+        canvas,
+        parameters,
+        business_name,
+        box,
+    ):
+        return
+
     # V4 semantic construction families take precedence over the
     # older V3 symbol-family router. Returning here is essential:
     # otherwise the V3 fallback would draw over the V4 symbol.

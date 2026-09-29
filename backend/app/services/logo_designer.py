@@ -705,6 +705,12 @@ Use exactly this schema:
     "symbol_family": "<ribbon-monogram, fused-lettermark, negative-space, geometric-network, orbital-motion, or structured-emblem>",
     "construction": "<ribbon-fusion, sharp-fusion, negative-space-letter, folded-letter, modular-symbol, orbital-spark, continuous-flow, infinity-loop, technical-ring, structured-badge, concept-pictogram, or swoosh-wordmark>",
     "accent_motif": "<spark, node, arc, cut, leaf, light, growth, connection, motion, or none>",
+    "industry_family": "<best matching business sector>",
+    "industry_subtype": "<specific supplied or inferred sub-industry>",
+    "semantic_motif": "<specific business-relevant motif such as bean, steam, wave, route, pulse, structure, leaf, sun, drop, etc.>",
+    "secondary_motif": "<second complementary business-relevant motif>",
+    "metaphor_mode": "<industry-symbol, initial-fusion, negative-space, abstract-motion, conceptual, emblem, or typography-led>",
+    "avoid_cliches": ["<cliche to avoid>", "<optional second cliche>"],
     "typography_personality": "<modern, geometric, elegant, classic, or bold>",
     "presentation_layout": "<stacked, horizontal, emblem, or typography-led>",
     "treatment": "<flat or premium-gradient>",
@@ -923,6 +929,8 @@ stroke_width must be 8 through 35.
         direction_index=direction_index,
         palette_name=palette_name,
         custom_colors=valid_custom_colors,
+        industry=industry,
+        business_description=description,
     )
 
     # Persist one unique generation identity with the specification.
@@ -938,12 +946,607 @@ stroke_width must be 8 through 35.
 # SANITIZE AI OUTPUT
 # =========================================================
 
+
+# =============================================================
+# V4.2 INDUSTRY + SEMANTIC IDENTITY ENGINE
+# =============================================================
+
+INDUSTRY_SEMANTIC_PROFILES = {
+    "technology": {
+        "keywords": {
+            "technology", "software", "saas", "ai", "artificial intelligence",
+            "machine learning", "cloud", "app", "digital", "data",
+            "developer", "platform", "automation", "it", "computing",
+        },
+        "motifs": (
+            "circuit", "data-flow", "grid", "connection",
+            "spark", "modular", "signal",
+        ),
+        "constructions": (
+            "modular-symbol", "sharp-fusion", "technical-ring",
+            "orbital-spark", "continuous-flow",
+        ),
+        "typography": ("geometric", "modern", "bold"),
+        "avoid": (
+            "generic AI brain",
+            "generic technology hexagon",
+            "meaningless network nodes",
+        ),
+    },
+    "cybersecurity": {
+        "keywords": {
+            "cybersecurity", "cyber security", "security", "infosec",
+            "privacy", "encryption", "secure", "zero trust",
+        },
+        "motifs": (
+            "shield", "lock-space", "encrypted-connection",
+            "fortress", "precision",
+        ),
+        "constructions": (
+            "negative-space-letter", "structured-badge",
+            "technical-ring", "sharp-fusion",
+        ),
+        "typography": ("geometric", "bold", "modern"),
+        "avoid": ("generic padlock clipart", "hacker hoodie imagery"),
+    },
+    "finance": {
+        "keywords": {
+            "finance", "fintech", "bank", "banking", "investment",
+            "accounting", "wealth", "capital", "insurance",
+            "payments", "financial",
+        },
+        "motifs": (
+            "growth", "pillar", "precision", "progress",
+            "trust", "upward-motion",
+        ),
+        "constructions": (
+            "structured-badge", "sharp-fusion", "technical-ring",
+            "negative-space-letter", "modular-symbol",
+        ),
+        "typography": ("classic", "geometric", "elegant"),
+        "avoid": ("generic dollar sign", "generic stock chart arrow"),
+    },
+    "legal": {
+        "keywords": {
+            "legal", "law", "lawyer", "attorney", "advocate",
+            "solicitor", "barrister", "legal services",
+        },
+        "motifs": (
+            "balance", "pillar", "structure", "authority",
+            "protection", "foundation",
+        ),
+        "constructions": (
+            "structured-badge", "sharp-fusion",
+            "negative-space-letter", "technical-ring",
+        ),
+        "typography": ("classic", "elegant", "geometric"),
+        "avoid": ("generic scales clipart", "gavel clipart"),
+    },
+    "healthcare": {
+        "keywords": {
+            "health", "healthcare", "medical", "medicine", "clinic",
+            "hospital", "doctor", "dental", "dentist", "pharma",
+            "pharmacy", "therapy", "wellness",
+        },
+        "motifs": (
+            "care", "pulse", "continuity", "leaf",
+            "human", "wellbeing",
+        ),
+        "constructions": (
+            "continuous-flow", "concept-pictogram",
+            "infinity-loop", "negative-space-letter",
+        ),
+        "typography": ("modern", "geometric", "classic"),
+        "avoid": ("generic medical cross", "generic heartbeat stock icon"),
+    },
+    "coffee": {
+        "keywords": {
+            "coffee", "cafe", "caf?", "espresso", "roastery",
+            "roaster", "barista", "coffeehouse",
+        },
+        "motifs": (
+            "bean", "steam", "roast", "warmth",
+            "origin", "leaf",
+        ),
+        "constructions": (
+            "concept-pictogram", "continuous-flow",
+            "negative-space-letter", "structured-badge",
+            "ribbon-fusion",
+        ),
+        "typography": ("classic", "elegant", "modern", "bold"),
+        "avoid": ("generic coffee cup clipart", "generic caf? badge"),
+    },
+    "food-beverage": {
+        "keywords": {
+            "food", "restaurant", "beverage", "bakery", "catering",
+            "kitchen", "chef", "organic food", "snack", "drink",
+            "nutrition", "grocery",
+        },
+        "motifs": (
+            "nourishment", "leaf", "bowl", "grain",
+            "freshness", "warmth",
+        ),
+        "constructions": (
+            "concept-pictogram", "structured-badge",
+            "continuous-flow", "negative-space-letter",
+        ),
+        "typography": ("modern", "classic", "bold"),
+        "avoid": ("generic fork and knife clipart", "chef hat stock logo"),
+    },
+    "music-audio": {
+        "keywords": {
+            "music", "audio", "sound", "recording", "studio",
+            "record label", "dj", "musician", "podcast",
+            "headphones", "streaming",
+        },
+        "motifs": (
+            "wave", "pulse", "groove", "rhythm",
+            "frequency", "resonance", "play",
+        ),
+        "constructions": (
+            "continuous-flow", "orbital-spark",
+            "infinity-loop", "ribbon-fusion",
+            "swoosh-wordmark",
+        ),
+        "typography": ("bold", "geometric", "modern", "elegant"),
+        "avoid": ("literal music note clipart", "generic headphones icon"),
+    },
+    "education": {
+        "keywords": {
+            "education", "school", "academy", "learning", "e-learning",
+            "elearning", "university", "college", "training",
+            "tutor", "course",
+        },
+        "motifs": (
+            "knowledge", "book", "light", "growth",
+            "path", "discovery",
+        ),
+        "constructions": (
+            "concept-pictogram", "structured-badge",
+            "negative-space-letter", "orbital-spark",
+        ),
+        "typography": ("modern", "classic", "geometric"),
+        "avoid": ("generic graduation cap clipart", "generic open book"),
+    },
+    "real-estate": {
+        "keywords": {
+            "real estate", "realty", "property", "properties",
+            "housing", "home", "architecture", "architect",
+            "construction", "building", "interior",
+        },
+        "motifs": (
+            "structure", "doorway", "foundation", "roof",
+            "space", "skyline",
+        ),
+        "constructions": (
+            "negative-space-letter", "structured-badge",
+            "sharp-fusion", "modular-symbol",
+        ),
+        "typography": ("geometric", "classic", "modern"),
+        "avoid": ("generic house roof clipart", "generic skyline stock mark"),
+    },
+    "travel-hospitality": {
+        "keywords": {
+            "travel", "tourism", "hotel", "hospitality", "resort",
+            "vacation", "tour", "airline", "destination",
+        },
+        "motifs": (
+            "destination", "route", "horizon", "motion",
+            "discovery", "journey",
+        ),
+        "constructions": (
+            "continuous-flow", "orbital-spark",
+            "swoosh-wordmark", "concept-pictogram",
+        ),
+        "typography": ("modern", "elegant", "geometric"),
+        "avoid": ("generic airplane clipart", "generic map pin"),
+    },
+    "automotive": {
+        "keywords": {
+            "automotive", "car", "cars", "vehicle", "vehicles",
+            "auto", "motors", "mobility", "garage", "racing",
+        },
+        "motifs": (
+            "speed", "road", "motion", "aerodynamic",
+            "precision", "forward",
+        ),
+        "constructions": (
+            "swoosh-wordmark", "sharp-fusion",
+            "continuous-flow", "technical-ring",
+        ),
+        "typography": ("bold", "geometric", "modern"),
+        "avoid": ("generic car silhouette", "generic wheel clipart"),
+    },
+    "logistics": {
+        "keywords": {
+            "logistics", "delivery", "shipping", "courier",
+            "transport", "transportation", "freight",
+            "supply chain", "warehouse",
+        },
+        "motifs": (
+            "route", "connection", "destination",
+            "movement", "forward", "network",
+        ),
+        "constructions": (
+            "continuous-flow", "modular-symbol",
+            "swoosh-wordmark", "orbital-spark",
+        ),
+        "typography": ("bold", "geometric", "modern"),
+        "avoid": ("generic truck clipart", "generic package icon"),
+    },
+    "fashion-beauty": {
+        "keywords": {
+            "fashion", "beauty", "cosmetics", "skincare",
+            "salon", "style", "lifestyle", "clothing",
+            "jewelry", "jewellery", "luxury fashion",
+        },
+        "motifs": (
+            "fold", "petal", "flow", "elegance",
+            "craft", "spark",
+        ),
+        "constructions": (
+            "ribbon-fusion", "folded-letter",
+            "swoosh-wordmark", "negative-space-letter",
+        ),
+        "typography": ("elegant", "classic", "modern"),
+        "avoid": ("generic crown", "generic diamond stock icon"),
+    },
+    "fitness-sports": {
+        "keywords": {
+            "fitness", "gym", "sport", "sports", "athletic",
+            "training", "workout", "performance", "yoga",
+        },
+        "motifs": (
+            "energy", "motion", "peak", "strength",
+            "pulse", "progress",
+        ),
+        "constructions": (
+            "sharp-fusion", "continuous-flow",
+            "swoosh-wordmark", "orbital-spark",
+        ),
+        "typography": ("bold", "geometric", "modern"),
+        "avoid": ("generic dumbbell", "generic flexing person"),
+    },
+    "nature-agriculture": {
+        "keywords": {
+            "nature", "agriculture", "farm", "farming", "organic",
+            "sustainable", "sustainability", "eco", "green",
+            "environment", "environmental", "garden",
+        },
+        "motifs": (
+            "leaf", "growth", "sprout", "sun",
+            "earth", "organic-flow",
+        ),
+        "constructions": (
+            "concept-pictogram", "continuous-flow",
+            "negative-space-letter", "structured-badge",
+        ),
+        "typography": ("modern", "classic", "elegant"),
+        "avoid": ("generic recycling arrows", "generic globe with leaf"),
+    },
+    "water": {
+        "keywords": {
+            "water", "aqua", "aquatic", "purification",
+            "filtration", "hydration", "marine",
+        },
+        "motifs": (
+            "drop", "wave", "purity", "flow",
+            "renewal", "clarity",
+        ),
+        "constructions": (
+            "continuous-flow", "concept-pictogram",
+            "infinity-loop", "negative-space-letter",
+        ),
+        "typography": ("modern", "geometric", "elegant"),
+        "avoid": ("generic blue water-drop stock icon",),
+    },
+    "energy": {
+        "keywords": {
+            "energy", "solar", "renewable", "power",
+            "electric", "electricity", "battery", "clean energy",
+        },
+        "motifs": (
+            "sun", "ray", "power", "spark",
+            "renewal", "growth",
+        ),
+        "constructions": (
+            "orbital-spark", "concept-pictogram",
+            "sharp-fusion", "technical-ring",
+        ),
+        "typography": ("geometric", "bold", "modern"),
+        "avoid": ("generic lightning bolt", "generic solar panel icon"),
+    },
+    "gaming-entertainment": {
+        "keywords": {
+            "gaming", "game", "games", "esports", "e-sports",
+            "entertainment", "streamer", "streaming",
+        },
+        "motifs": (
+            "play", "energy", "portal", "motion",
+            "spark", "competition",
+        ),
+        "constructions": (
+            "sharp-fusion", "orbital-spark",
+            "folded-letter", "swoosh-wordmark",
+        ),
+        "typography": ("bold", "geometric", "modern"),
+        "avoid": ("generic game controller", "generic esports mascot"),
+    },
+    "creative-media": {
+        "keywords": {
+            "creative", "agency", "design", "media", "photography",
+            "film", "video", "marketing", "advertising",
+            "branding", "content",
+        },
+        "motifs": (
+            "frame", "focus", "light", "spark",
+            "story", "transformation",
+        ),
+        "constructions": (
+            "folded-letter", "ribbon-fusion",
+            "concept-pictogram", "swoosh-wordmark",
+        ),
+        "typography": ("modern", "elegant", "bold"),
+        "avoid": ("generic camera aperture", "generic magic wand"),
+    },
+    "manufacturing-engineering": {
+        "keywords": {
+            "manufacturing", "engineering", "industrial",
+            "factory", "machinery", "mechanical",
+            "automation engineering", "fabrication",
+        },
+        "motifs": (
+            "precision", "structure", "assembly",
+            "motion", "technical", "strength",
+        ),
+        "constructions": (
+            "technical-ring", "modular-symbol",
+            "sharp-fusion", "structured-badge",
+        ),
+        "typography": ("geometric", "bold", "modern"),
+        "avoid": ("generic gear stock icon", "generic factory silhouette"),
+    },
+    "retail-ecommerce": {
+        "keywords": {
+            "retail", "ecommerce", "e-commerce", "shop",
+            "store", "marketplace", "shopping", "commerce",
+        },
+        "motifs": (
+            "choice", "connection", "discovery",
+            "movement", "exchange", "spark",
+        ),
+        "constructions": (
+            "ribbon-fusion", "modular-symbol",
+            "swoosh-wordmark", "concept-pictogram",
+        ),
+        "typography": ("modern", "bold", "geometric"),
+        "avoid": ("generic shopping cart", "generic shopping bag"),
+    },
+    "nonprofit-community": {
+        "keywords": {
+            "nonprofit", "non-profit", "charity", "community",
+            "foundation", "ngo", "social impact", "volunteer",
+        },
+        "motifs": (
+            "community", "connection", "care",
+            "growth", "human", "hope",
+        ),
+        "constructions": (
+            "concept-pictogram", "infinity-loop",
+            "continuous-flow", "structured-badge",
+        ),
+        "typography": ("modern", "classic", "geometric"),
+        "avoid": ("generic holding hands clipart", "generic heart logo"),
+    },
+    "professional-services": {
+        "keywords": {
+            "consulting", "consultant", "professional services",
+            "business services", "advisory", "strategy",
+            "management", "b2b",
+        },
+        "motifs": (
+            "clarity", "progress", "structure",
+            "connection", "precision", "confidence",
+        ),
+        "constructions": (
+            "sharp-fusion", "technical-ring",
+            "structured-badge", "modular-symbol",
+        ),
+        "typography": ("geometric", "classic", "modern"),
+        "avoid": ("generic handshake", "generic bar chart"),
+    },
+}
+
+SEMANTIC_MOTIFS = {
+    "spark", "node", "arc", "cut", "leaf", "light", "growth",
+    "connection", "motion", "none",
+    "circuit", "data-flow", "grid", "modular", "signal",
+    "shield", "lock-space", "encrypted-connection", "fortress",
+    "precision", "pillar", "progress", "trust", "upward-motion",
+    "balance", "structure", "authority", "protection", "foundation",
+    "care", "pulse", "continuity", "human", "wellbeing",
+    "bean", "steam", "roast", "warmth", "origin",
+    "nourishment", "bowl", "grain", "freshness",
+    "wave", "groove", "rhythm", "frequency", "resonance", "play",
+    "knowledge", "book", "path", "discovery",
+    "doorway", "roof", "space", "skyline",
+    "destination", "route", "horizon", "journey",
+    "speed", "road", "aerodynamic", "forward",
+    "movement", "network", "fold", "petal", "elegance", "craft",
+    "energy", "peak", "strength", "sprout", "sun", "earth",
+    "organic-flow", "drop", "purity", "flow", "renewal", "clarity",
+    "ray", "power", "portal", "competition", "frame", "focus",
+    "story", "transformation", "assembly", "technical",
+    "choice", "exchange", "community", "hope", "confidence",
+}
+
+METAPHOR_MODES = {
+    "industry-symbol",
+    "initial-fusion",
+    "negative-space",
+    "abstract-motion",
+    "conceptual",
+    "emblem",
+    "typography-led",
+}
+
+V4_CONSTRUCTIONS = {
+    "ribbon-fusion",
+    "sharp-fusion",
+    "negative-space-letter",
+    "folded-letter",
+    "modular-symbol",
+    "orbital-spark",
+    "continuous-flow",
+    "infinity-loop",
+    "technical-ring",
+    "structured-badge",
+    "concept-pictogram",
+    "swoosh-wordmark",
+}
+
+V4_TYPOGRAPHY = {
+    "modern",
+    "geometric",
+    "elegant",
+    "classic",
+    "bold",
+}
+
+
+def infer_industry_semantics(industry="", description=""):
+    """Return deterministic semantic guidance for any supplied business."""
+    raw_industry = str(industry or "").strip()
+    raw_description = str(description or "").strip()
+
+    industry_text = raw_industry.lower()
+    description_text = raw_description.lower()
+    haystack = f"{industry_text} {description_text}".strip()
+
+    best_family = "other"
+    best_score = 0
+
+    for family, profile in INDUSTRY_SEMANTIC_PROFILES.items():
+        score = 0
+
+        for keyword in profile["keywords"]:
+            keyword = keyword.lower()
+
+            # Explicit industry labels are authoritative. A business entered
+            # as Music must not become Technology merely because its
+            # description contains generic words such as "platform".
+            if keyword == industry_text:
+                score += 100
+
+            elif keyword in industry_text:
+                score += 40
+
+            elif keyword in description_text:
+                score += 3
+
+        if score > best_score:
+            best_family = family
+            best_score = score
+
+    if best_family == "other":
+        return {
+            "industry_family": "other",
+            "industry_subtype": (
+                industry_text
+                if industry_text
+                else "general"
+            ),
+            "semantic_motifs": (
+                "clarity",
+                "progress",
+                "connection",
+                "craft",
+                "confidence",
+            ),
+            "constructions": (
+                "concept-pictogram",
+                "sharp-fusion",
+                "negative-space-letter",
+                "swoosh-wordmark",
+            ),
+            "typography": (
+                "modern",
+                "geometric",
+                "classic",
+            ),
+            "avoid_cliches": (
+                "generic stock icon",
+                "meaningless abstract polygon",
+            ),
+        }
+
+    profile = INDUSTRY_SEMANTIC_PROFILES[best_family]
+
+    return {
+        "industry_family": best_family,
+        "industry_subtype": (
+            industry_text
+            if industry_text
+            else best_family
+        ),
+        "semantic_motifs": profile["motifs"],
+        "constructions": profile["constructions"],
+        "typography": profile["typography"],
+        "avoid_cliches": profile["avoid"],
+    }
+
+
+def _semantic_default_for_direction(profile, direction_name, direction_index):
+    motifs = profile["semantic_motifs"]
+    constructions = profile["constructions"]
+    typography = profile["typography"]
+
+    mode_by_direction = {
+        "minimal-geometric": "industry-symbol",
+        "negative-space": "negative-space",
+        "monogram": "initial-fusion",
+        "abstract-motion": "abstract-motion",
+        "wordmark": "typography-led",
+        "brand-emblem": "emblem",
+    }
+
+    construction_by_direction = {
+        "negative-space": "negative-space-letter",
+        "wordmark": "swoosh-wordmark",
+        "brand-emblem": "structured-badge",
+    }
+
+    preferred_construction = construction_by_direction.get(direction_name)
+
+    if preferred_construction not in constructions:
+        preferred_construction = constructions[
+            direction_index % len(constructions)
+        ]
+
+    return {
+        "semantic_motif": motifs[
+            direction_index % len(motifs)
+        ],
+        "secondary_motif": motifs[
+            (direction_index + 1) % len(motifs)
+        ],
+        "metaphor_mode": mode_by_direction.get(
+            direction_name,
+            "conceptual",
+        ),
+        "construction": preferred_construction,
+        "typography_personality": typography[
+            direction_index % len(typography)
+        ],
+    }
 def sanitize_specification(
     specification: dict,
     direction: dict,
     direction_index: int,
     palette_name: str = "",
     custom_colors: list[str] | None = None,
+    industry: str = "",
+    business_description: str = "",
 ) -> dict:
     """
     Validate Ollama's structured result and enforce important
@@ -1391,6 +1994,75 @@ def sanitize_specification(
     if direction["name"] == "brand-emblem":
         presentation_layout = "emblem"
 
+
+    # -----------------------------------------------------
+    # V4.2 INDUSTRY + SEMANTIC IDENTITY
+    # -----------------------------------------------------
+
+    semantic_profile = infer_industry_semantics(
+        industry=industry,
+        description=business_description,
+    )
+
+    semantic_defaults = _semantic_default_for_direction(
+        semantic_profile,
+        direction["name"],
+        direction_index,
+    )
+
+    industry_family = str(
+        specification.get("industry_family")
+        or semantic_profile["industry_family"]
+    ).strip().lower()
+
+    # The deterministic classifier is authoritative for known industries.
+    if semantic_profile["industry_family"] != "other":
+        industry_family = semantic_profile["industry_family"]
+
+    industry_subtype = clean_text(
+        specification.get("industry_subtype"),
+        semantic_profile["industry_subtype"],
+    ).lower()
+
+    semantic_motif = str(
+        specification.get("semantic_motif")
+        or semantic_defaults["semantic_motif"]
+    ).strip().lower()
+
+    if semantic_motif not in SEMANTIC_MOTIFS:
+        semantic_motif = semantic_defaults["semantic_motif"]
+
+    secondary_motif = str(
+        specification.get("secondary_motif")
+        or semantic_defaults["secondary_motif"]
+    ).strip().lower()
+
+    if secondary_motif not in SEMANTIC_MOTIFS:
+        secondary_motif = semantic_defaults["secondary_motif"]
+
+    metaphor_mode = str(
+        specification.get("metaphor_mode")
+        or semantic_defaults["metaphor_mode"]
+    ).strip().lower()
+
+    if metaphor_mode not in METAPHOR_MODES:
+        metaphor_mode = semantic_defaults["metaphor_mode"]
+
+    raw_avoid = specification.get("avoid_cliches")
+    if isinstance(raw_avoid, list):
+        avoid_cliches = [
+            clean_text(item, "")
+            for item in raw_avoid
+            if clean_text(item, "")
+        ][:6]
+    else:
+        avoid_cliches = []
+
+    if not avoid_cliches:
+        avoid_cliches = list(
+            semantic_profile["avoid_cliches"]
+        )
+
     # -----------------------------------------------------
     # RESULT
     # -----------------------------------------------------
@@ -1524,6 +2196,24 @@ def sanitize_specification(
                     "brand identity."
                 ),
             ),
+
+        "industry_family":
+            industry_family,
+
+        "industry_subtype":
+            industry_subtype,
+
+        "semantic_motif":
+            semantic_motif,
+
+        "secondary_motif":
+            secondary_motif,
+
+        "metaphor_mode":
+            metaphor_mode,
+
+        "avoid_cliches":
+            avoid_cliches,
 
         "creative_direction":
             direction[
