@@ -917,13 +917,21 @@ stroke_width must be 8 through 35.
             )
         )
 
-    return sanitize_specification(
+    sanitized = sanitize_specification(
         specification=specification,
         direction=direction,
         direction_index=direction_index,
         palette_name=palette_name,
         custom_colors=valid_custom_colors,
     )
+
+    # Persist one unique generation identity with the specification.
+    # Rendering remains deterministic for saved assets, while a new logo
+    # generation request receives a fresh identity and therefore can produce
+    # a different local construction variant even for the same business.
+    sanitized["variant_seed"] = generation_id
+
+    return sanitized
 
 
 # =========================================================

@@ -64,17 +64,50 @@ def _stable_payload(specification: dict) -> str:
         return repr(specification)
 
 
-def _stable_seed(specification: dict) -> int:
-    payload = _stable_payload(specification)
-    digest = hashlib.sha256(payload.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "big", signed=False)
+def _stable_seed(
+    specification: dict,
+    identity: str = "",
+) -> int:
+    payload = (
+        str(identity or "").strip()
+        + "|"
+        + _stable_payload(specification)
+    )
+    digest = hashlib.sha256(
+        payload.encode("utf-8")
+    ).digest()
+    return int.from_bytes(
+        digest[:8],
+        "big",
+        signed=False,
+    )
 
 
 def _variant(seed: int, slot: int, choices: int) -> int:
     if choices <= 0:
         return 0
-    shifted = seed >> ((slot % 8) * 8)
-    return shifted % choices
+
+    # Hash seed + slot independently so variation does not collapse when
+    # more than eight design decisions are required.
+    payload = f"{seed}:{slot}".encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    value = int.from_bytes(digest[:8], "big", signed=False)
+    return value % choices
+
+
+def _seed_fraction(
+    seed: int,
+    slot: int,
+    minimum: float,
+    maximum: float,
+) -> float:
+    """Stable floating-point design choice in [minimum, maximum]."""
+    payload = f"{seed}:fraction:{slot}".encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    value = int.from_bytes(digest[:8], "big", signed=False)
+    unit = value / ((1 << 64) - 1)
+
+    return minimum + (maximum - minimum) * unit
 
 
 def get_font(size: int, style: str = "modern"):
@@ -1937,11 +1970,18 @@ def _v4_initial_masks(
     box,
     overlap=0.20,
 ):
-    """Create exact-initial masks for arbitrary brands."""
+    """
+    Create exact-initial masks for arbitrary brands.
+
+    The saved specification seed controls bounded optical variation.
+    A fresh generation receives different proportions while rerendering
+    the same saved specification is pixel-reproducible.
+    """
     x0, y0, x1, y1 = box
     width = x1 - x0
     height = y1 - y0
     letters = initials(business_name)
+    seed = parameters["seed"]
 
     if len(letters) < 2:
         letters = (letters + letters)[:2]
@@ -1959,20 +1999,85 @@ def _v4_initial_masks(
         "bold": "modern",
     }
 
+    # Bound variation tightly enough to preserve professional readability.
+    size_factor = _seed_fraction(
+        seed,
+        101,
+        0.56,
+        0.68,
+    )
+
+    horizontal_shift = _seed_fraction(
+        seed,
+        102,
+        -0.035,
+        0.035,
+    )
+
+    vertical_shift = _seed_fraction(
+        seed,
+        103,
+        -0.025,
+        0.025,
+    )
+
+    overlap_adjustment = _seed_fraction(
+        seed,
+        104,
+        -0.055,
+        0.055,
+    )
+
+    effective_overlap = max(
+        0.08,
+        min(
+            0.42,
+            overlap + overlap_adjustment,
+        ),
+    )
+
     font = get_font(
-        int(min(width, height) * 0.62),
-        style_map.get(personality, "modern"),
+        int(min(width, height) * size_factor),
+        style_map.get(
+            personality,
+            "modern",
+        ),
     )
 
     masks = []
 
     centers = (
-        (x0 + width * (0.40 + overlap * 0.10)),
-        (x0 + width * (0.60 - overlap * 0.10)),
+        x0
+        + width
+        * (
+            0.40
+            + effective_overlap * 0.10
+            + horizontal_shift
+        ),
+        x0
+        + width
+        * (
+            0.60
+            - effective_overlap * 0.10
+            - horizontal_shift
+        ),
     )
 
-    for letter, center_x in zip(letters[:2], centers):
-        mask = Image.new("L", canvas_size, 0)
+    center_y = (
+        (y0 + y1) / 2
+        + height * vertical_shift
+    )
+
+    for letter, center_x in zip(
+        letters[:2],
+        centers,
+    ):
+        mask = Image.new(
+            "L",
+            canvas_size,
+            0,
+        )
+
         draw = ImageDraw.Draw(mask)
 
         bbox = draw.textbbox(
@@ -1987,7 +2092,11 @@ def _v4_initial_masks(
         draw.text(
             (
                 int(center_x - tw / 2),
-                int((y0 + y1) / 2 - th / 2 - bbox[1]),
+                int(
+                    center_y
+                    - th / 2
+                    - bbox[1]
+                ),
             ),
             letter,
             font=font,
@@ -2017,9 +2126,28 @@ def _v4_accent(
     accent = parameters["accent"]
 
     if motif in {"spark", "light"}:
-        x = x1 - width * 0.12
-        y = y0 + height * 0.12
-        r = min(width, height) * 0.035
+        seed = parameters["seed"]
+
+        x = x1 - width * _seed_fraction(
+            seed,
+            111,
+            0.09,
+            0.18,
+        )
+
+        y = y0 + height * _seed_fraction(
+            seed,
+            112,
+            0.08,
+            0.18,
+        )
+
+        r = min(width, height) * _seed_fraction(
+            seed,
+            113,
+            0.027,
+            0.042,
+        )
 
         points = [
             (x, y - r * 1.8),
