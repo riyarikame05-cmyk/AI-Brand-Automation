@@ -2232,13 +2232,13 @@ def _v4_ribbon_fusion(
     business_name,
     box,
 ):
-    """Fluid exact-initial fusion using overlapping masks."""
+    """Fluid exact-initial fusion with a deliberate shared ribbon core."""
     masks = _v4_initial_masks(
         canvas.size,
         business_name,
         parameters,
         box,
-        overlap=0.34,
+        overlap=0.40,
     )
 
     first, second = masks
@@ -2263,40 +2263,38 @@ def _v4_ribbon_fusion(
         horizontal=False,
     )
 
-    canvas.paste(
-        gradient_a,
-        (0, 0),
-        first,
-    )
+    canvas.paste(gradient_a, (0, 0), first)
+    canvas.paste(gradient_b, (0, 0), second)
 
-    canvas.paste(
-        gradient_b,
-        (0, 0),
-        second,
-    )
+    overlap = ImageChops.multiply(first, second)
 
-    overlap = ImageChops.multiply(
-        first,
-        second,
-    )
-
+    # The shared section is intentionally brighter so the initials read as a
+    # single woven construction rather than two unrelated glyphs.
     overlap_ink = Image.new(
         "RGB",
         canvas.size,
         parameters["secondary"],
     )
+    canvas.paste(overlap_ink, (0, 0), overlap)
 
-    canvas.paste(
-        overlap_ink,
-        (0, 0),
-        overlap,
+    x0, y0, x1, y1 = box
+    w = x1 - x0
+    h = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+    draw = ImageDraw.Draw(canvas)
+
+    # Shared diagonal ribbon creates an unmistakable joining gesture.
+    draw.line(
+        [
+            (int(cx - w * 0.10), int(cy + h * 0.19)),
+            (int(cx + w * 0.10), int(cy - h * 0.20)),
+        ],
+        fill=parameters["accent"],
+        width=max(12, int(min(w, h) * 0.035)),
     )
 
-    _v4_accent(
-        canvas,
-        parameters,
-        box,
-    )
+    _v4_accent(canvas, parameters, box)
 
 
 def _v4_sharp_fusion(
@@ -2305,17 +2303,19 @@ def _v4_sharp_fusion(
     business_name,
     box,
 ):
-    """Angular letter fusion with exact initials and a shared axis."""
+    """Angular initial fusion with shared axis and architectural cut facets."""
     x0, y0, x1, y1 = box
     width = x1 - x0
     height = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
 
     masks = _v4_initial_masks(
         canvas.size,
         business_name,
         parameters,
         box,
-        overlap=0.26,
+        overlap=0.34,
     )
 
     combined = ImageChops.lighter(
@@ -2328,52 +2328,58 @@ def _v4_sharp_fusion(
         [
             parameters["primary"],
             parameters["secondary"],
+            parameters["accent"],
         ],
         horizontal=True,
     )
 
-    canvas.paste(
-        gradient,
-        (0, 0),
-        combined,
-    )
-
+    canvas.paste(gradient, (0, 0), combined)
     draw = ImageDraw.Draw(canvas)
 
-    # Shared diagonal turns ordinary letters into one designed system.
-    cx = (x0 + x1) / 2
-    cy = (y0 + y1) / 2
-
     thickness = max(
-        16,
-        int(min(width, height) * 0.055),
+        14,
+        int(min(width, height) * 0.045),
     )
 
-    points = [
-        (
-            cx - width * 0.24,
-            cy + height * 0.22,
-        ),
-        (
-            cx + width * 0.23,
-            cy - height * 0.24,
-        ),
-    ]
-
+    # Shared axis visually binds the initials.
     draw.line(
         [
-            (int(x), int(y))
-            for x, y in points
+            (
+                int(cx - width * 0.19),
+                int(cy + height * 0.24),
+            ),
+            (
+                int(cx + width * 0.18),
+                int(cy - height * 0.25),
+            ),
         ],
         fill=parameters["accent"],
         width=thickness,
     )
 
-    _v4_accent(
-        canvas,
-        parameters,
-        box,
+    # Two small architectural facets prevent the result from reading as
+    # ordinary letters placed beside one another.
+    facet = min(width, height) * 0.055
+
+    draw.polygon(
+        [
+            (int(cx - facet * 1.7), int(cy - facet * 0.2)),
+            (int(cx - facet * 0.2), int(cy - facet * 1.5)),
+            (int(cx + facet * 0.35), int(cy - facet * 0.2)),
+        ],
+        fill=parameters["primary"],
     )
+
+    draw.polygon(
+        [
+            (int(cx + facet * 1.6), int(cy + facet * 0.15)),
+            (int(cx + facet * 0.15), int(cy + facet * 1.45)),
+            (int(cx - facet * 0.30), int(cy + facet * 0.15)),
+        ],
+        fill=parameters["secondary"],
+    )
+
+    _v4_accent(canvas, parameters, box)
 
 
 def _v4_negative_space_letter(
@@ -2382,7 +2388,7 @@ def _v4_negative_space_letter(
     business_name,
     box,
 ):
-    """Initials are cut from a strong containing silhouette."""
+    """Exact initials become clean negative-space cuts inside a silhouette."""
     x0, y0, x1, y1 = box
     width = x1 - x0
     height = y1 - y0
@@ -2396,8 +2402,7 @@ def _v4_negative_space_letter(
     )
     draw = ImageDraw.Draw(silhouette)
 
-    radius = min(width, height) * 0.39
-
+    radius = min(width, height) * 0.40
     sides = (
         6
         if parameters.get("geometry_style") == "sharp"
@@ -2417,17 +2422,32 @@ def _v4_negative_space_letter(
         fill=255,
     )
 
+    # Smaller letters and stronger overlap keep the cutout readable instead
+    # of letting glyph edges collide with the container.
+    inner_box = (
+        x0 + width * 0.10,
+        y0 + height * 0.10,
+        x1 - width * 0.10,
+        y1 - height * 0.10,
+    )
+
     letter_masks = _v4_initial_masks(
         canvas.size,
         business_name,
         parameters,
-        box,
-        overlap=0.18,
+        inner_box,
+        overlap=0.30,
     )
 
     cutout = ImageChops.lighter(
         letter_masks[0],
         letter_masks[1],
+    )
+
+    # Restrict the subtraction to the containing silhouette.
+    cutout = ImageChops.multiply(
+        cutout,
+        silhouette,
     )
 
     final_mask = ImageChops.subtract(
@@ -2451,11 +2471,7 @@ def _v4_negative_space_letter(
         final_mask,
     )
 
-    _v4_accent(
-        canvas,
-        parameters,
-        box,
-    )
+    _v4_accent(canvas, parameters, box)
 
 
 def _v4_folded_letter(
@@ -2615,23 +2631,40 @@ def _v4_continuous_flow(canvas, p, business_name, box):
     h = y1 - y0
     cx = (x0 + x1) / 2
     cy = (y0 + y1) / 2
+    seed = p.get("seed", 0)
 
     mask = Image.new("L", canvas.size, 0)
     draw = ImageDraw.Draw(mask)
 
+    amplitude = _seed_fraction(
+        seed,
+        401,
+        0.92,
+        1.08,
+    )
+    vertical = _seed_fraction(
+        seed,
+        402,
+        -0.025,
+        0.025,
+    )
+
+    # Use more of the symbol box than V4.0 so horizontal lockups do not make
+    # the flow mark look undersized.
     points = [
-        (x0 + w * 0.12, cy + h * 0.13),
-        (x0 + w * 0.30, y0 + h * 0.12),
-        (x0 + w * 0.48, y1 - h * 0.18),
-        (x0 + w * 0.66, cy - h * 0.11),
+        (x0 + w * 0.07, cy + h * (0.17 + vertical)),
+        (x0 + w * 0.29, y0 + h * (0.08 / amplitude)),
+        (x0 + w * 0.58, y1 - h * (0.12 / amplitude)),
+        (x0 + w * 0.88, cy - h * (0.15 + vertical)),
     ]
 
     p0, p1, p2, p3 = points
     samples = []
 
-    for i in range(61):
-        t = i / 60
+    for i in range(81):
+        t = i / 80
         q = 1 - t
+
         px = (
             q**3 * p0[0]
             + 3 * q**2 * t * p1[0]
@@ -2644,9 +2677,13 @@ def _v4_continuous_flow(canvas, p, business_name, box):
             + 3 * q * t**2 * p2[1]
             + t**3 * p3[1]
         )
+
         samples.append((int(px), int(py)))
 
-    stroke = max(28, int(min(w, h) * 0.12))
+    stroke = max(
+        30,
+        int(min(w, h) * 0.13),
+    )
 
     draw.line(
         samples,
@@ -2658,31 +2695,40 @@ def _v4_continuous_flow(canvas, p, business_name, box):
     radius = stroke // 2
     for px, py in (samples[0], samples[-1]):
         draw.ellipse(
-            (px - radius, py - radius, px + radius, py + radius),
+            (
+                px - radius,
+                py - radius,
+                px + radius,
+                py + radius,
+            ),
             fill=255,
         )
 
     gradient = _premium_gradient(
         canvas.size,
-        [p["primary"], p["secondary"], p["accent"]],
+        [
+            p["primary"],
+            p["secondary"],
+            p["accent"],
+        ],
         horizontal=True,
     )
 
     canvas.paste(gradient, (0, 0), mask)
 
-    # Parallel return path turns the gesture into a mark rather than a line.
     draw_canvas = ImageDraw.Draw(canvas)
+
     draw_canvas.arc(
         (
-            int(cx - w * 0.24),
-            int(cy - h * 0.13),
-            int(cx + w * 0.30),
-            int(cy + h * 0.28),
+            int(cx - w * 0.31),
+            int(cy - h * 0.18),
+            int(cx + w * 0.34),
+            int(cy + h * 0.30),
         ),
-        start=198,
-        end=334,
+        start=194,
+        end=340,
         fill=p["accent"],
-        width=max(10, stroke // 4),
+        width=max(11, stroke // 4),
     )
 
     _v4_accent(canvas, p, box)
@@ -2900,11 +2946,15 @@ def _v4_concept_pictogram(canvas, p, business_name, box):
     cx = (x0 + x1) / 2
     cy = (y0 + y1) / 2
     draw = ImageDraw.Draw(canvas)
+    seed = p.get("seed", 0)
 
-    motif = p.get("accent_motif", "light")
+    motif = str(
+        p.get("accent_motif") or "light"
+    ).strip().lower()
 
     if motif in {"leaf", "growth"}:
-        leaf_w = w * 0.23
+        lean = _seed_fraction(seed, 501, -0.04, 0.04)
+        leaf_w = w * 0.24
         leaf_h = h * 0.31
 
         draw.ellipse(
@@ -2919,39 +2969,85 @@ def _v4_concept_pictogram(canvas, p, business_name, box):
 
         draw.polygon(
             [
-                (int(cx - leaf_w), int(cy + leaf_h)),
-                (int(cx + leaf_w), int(cy - leaf_h)),
-                (int(cx + leaf_w), int(cy + leaf_h)),
+                (
+                    int(cx - leaf_w),
+                    int(cy + leaf_h),
+                ),
+                (
+                    int(cx + leaf_w),
+                    int(cy - leaf_h),
+                ),
+                (
+                    int(cx + leaf_w),
+                    int(cy + leaf_h),
+                ),
             ],
             fill=_premium_background(p),
         )
 
         draw.line(
             [
-                (int(cx - w * 0.13), int(cy + h * 0.20)),
-                (int(cx + w * 0.14), int(cy - h * 0.19)),
+                (
+                    int(cx - w * (0.15 - lean)),
+                    int(cy + h * 0.22),
+                ),
+                (
+                    int(cx + w * (0.16 + lean)),
+                    int(cy - h * 0.21),
+                ),
             ],
             fill=p["accent"],
-            width=max(10, int(min(w, h) * 0.025)),
+            width=max(10, int(min(w, h) * 0.028)),
+        )
+
+        # Small rising node gives "growth" a clearer upward metaphor.
+        r = min(w, h) * 0.035
+        draw.ellipse(
+            (
+                int(cx + w * 0.11 - r),
+                int(cy - h * 0.24 - r),
+                int(cx + w * 0.11 + r),
+                int(cy - h * 0.24 + r),
+            ),
+            fill=p["accent"],
         )
 
     elif motif in {"connection", "node"}:
+        rotation = _seed_fraction(seed, 502, -0.10, 0.10)
+
         nodes = [
-            (cx, cy - h * 0.25),
-            (cx + w * 0.23, cy + h * 0.13),
-            (cx - w * 0.23, cy + h * 0.13),
+            (
+                cx + w * rotation,
+                cy - h * 0.27,
+            ),
+            (
+                cx + w * 0.25,
+                cy + h * 0.15,
+            ),
+            (
+                cx - w * 0.25,
+                cy + h * 0.15,
+            ),
         ]
 
         for i in range(3):
             a = nodes[i]
             b = nodes[(i + 1) % 3]
+
             draw.line(
-                [(int(a[0]), int(a[1])), (int(b[0]), int(b[1]))],
+                [
+                    (int(a[0]), int(a[1])),
+                    (int(b[0]), int(b[1])),
+                ],
                 fill=p["secondary"],
-                width=max(12, int(min(w, h) * 0.035)),
+                width=max(
+                    12,
+                    int(min(w, h) * 0.035),
+                ),
             )
 
-        r = min(w, h) * 0.055
+        r = min(w, h) * 0.058
+
         for i, (px, py) in enumerate(nodes):
             draw.ellipse(
                 (
@@ -2960,12 +3056,96 @@ def _v4_concept_pictogram(canvas, p, business_name, box):
                     int(px + r),
                     int(py + r),
                 ),
-                fill=p["accent"] if i == 0 else p["primary"],
+                fill=(
+                    p["accent"]
+                    if i == 0
+                    else p["primary"]
+                ),
             )
 
+    elif motif in {"motion", "arc"}:
+        stroke = max(
+            14,
+            int(min(w, h) * 0.045),
+        )
+
+        draw.arc(
+            (
+                int(cx - w * 0.30),
+                int(cy - h * 0.22),
+                int(cx + w * 0.30),
+                int(cy + h * 0.24),
+            ),
+            start=190,
+            end=345,
+            fill=p["secondary"],
+            width=stroke,
+        )
+
+        draw.arc(
+            (
+                int(cx - w * 0.20),
+                int(cy - h * 0.13),
+                int(cx + w * 0.22),
+                int(cy + h * 0.17),
+            ),
+            start=20,
+            end=178,
+            fill=p["accent"],
+            width=max(10, stroke // 2),
+        )
+
+        tip = min(w, h) * 0.055
+        draw.polygon(
+            [
+                (
+                    int(cx + w * 0.30),
+                    int(cy - h * 0.02),
+                ),
+                (
+                    int(cx + w * 0.20),
+                    int(cy - h * 0.11),
+                ),
+                (
+                    int(cx + w * 0.21),
+                    int(cy + h * 0.02),
+                ),
+            ],
+            fill=p["accent"],
+        )
+
+    elif motif == "spark":
+        size = min(w, h) * 0.25
+        points = [
+            (cx, cy - size),
+            (cx + size * 0.25, cy - size * 0.25),
+            (cx + size, cy),
+            (cx + size * 0.25, cy + size * 0.25),
+            (cx, cy + size),
+            (cx - size * 0.25, cy + size * 0.25),
+            (cx - size, cy),
+            (cx - size * 0.25, cy - size * 0.25),
+        ]
+
+        draw.polygon(
+            [(int(x), int(y)) for x, y in points],
+            fill=p["secondary"],
+        )
+
+        core = size * 0.22
+        draw.ellipse(
+            (
+                int(cx - core),
+                int(cy - core),
+                int(cx + core),
+                int(cy + core),
+            ),
+            fill=p["accent"],
+        )
+
     else:
-        # Light/discovery pictogram: clean bulb-like outline with spark core.
-        radius = min(w, h) * 0.24
+        # Light/discovery concept.
+        radius = min(w, h) * 0.25
 
         draw.arc(
             (
@@ -2982,8 +3162,14 @@ def _v4_concept_pictogram(canvas, p, business_name, box):
 
         draw.line(
             [
-                (int(cx - radius * 0.33), int(cy + radius * 0.78)),
-                (int(cx + radius * 0.33), int(cy + radius * 0.78)),
+                (
+                    int(cx - radius * 0.34),
+                    int(cy + radius * 0.78),
+                ),
+                (
+                    int(cx + radius * 0.34),
+                    int(cy + radius * 0.78),
+                ),
             ],
             fill=p["accent"],
             width=max(10, int(radius * 0.06)),
@@ -3157,6 +3343,209 @@ def _draw_premium_symbol(canvas, parameters, business_name, box):
         )
 
 
+def _v4_typography_profile(parameters):
+    personality = str(
+        parameters.get("typography_personality") or "modern"
+    ).strip().lower()
+
+    profiles = {
+        "modern": {
+            "font_paths": [
+                "C:/Windows/Fonts/seguisb.ttf",
+                "C:/Windows/Fonts/arialbd.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            ],
+            "regular_paths": [
+                "C:/Windows/Fonts/segoeui.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ],
+            "tracking": 0.018,
+            "descriptor_tracking": 0.12,
+            "size_factor": 1.00,
+        },
+        "geometric": {
+            "font_paths": [
+                "C:/Windows/Fonts/bahnschrift.ttf",
+                "C:/Windows/Fonts/arialbd.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            ],
+            "regular_paths": [
+                "C:/Windows/Fonts/bahnschrift.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ],
+            "tracking": 0.065,
+            "descriptor_tracking": 0.16,
+            "size_factor": 0.96,
+        },
+        "elegant": {
+            "font_paths": [
+                "C:/Windows/Fonts/georgia.ttf",
+                "C:/Windows/Fonts/times.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            ],
+            "regular_paths": [
+                "C:/Windows/Fonts/georgia.ttf",
+                "C:/Windows/Fonts/times.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            ],
+            "tracking": 0.045,
+            "descriptor_tracking": 0.19,
+            "size_factor": 1.02,
+        },
+        "classic": {
+            "font_paths": [
+                "C:/Windows/Fonts/cambriab.ttf",
+                "C:/Windows/Fonts/georgiab.ttf",
+                "C:/Windows/Fonts/timesbd.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+            ],
+            "regular_paths": [
+                "C:/Windows/Fonts/cambria.ttc",
+                "C:/Windows/Fonts/georgia.ttf",
+                "C:/Windows/Fonts/times.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            ],
+            "tracking": 0.018,
+            "descriptor_tracking": 0.11,
+            "size_factor": 0.98,
+        },
+        "bold": {
+            "font_paths": [
+                "C:/Windows/Fonts/arialbd.ttf",
+                "C:/Windows/Fonts/seguisb.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            ],
+            "regular_paths": [
+                "C:/Windows/Fonts/arial.ttf",
+                "C:/Windows/Fonts/segoeui.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ],
+            "tracking": -0.012,
+            "descriptor_tracking": 0.08,
+            "size_factor": 1.05,
+        },
+    }
+
+    return profiles.get(personality, profiles["modern"])
+
+
+def _v4_profile_font(profile, size, regular=False):
+    size = max(8, int(size))
+    key = "regular_paths" if regular else "font_paths"
+
+    for path in profile[key]:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except (OSError, IOError):
+            continue
+
+    return (
+        _get_regular_font(size, "modern")
+        if regular
+        else get_font(size, "modern")
+    )
+
+
+def _tracked_text_metrics(draw, text, font, tracking):
+    text = str(text or "")
+
+    if not text:
+        return 0, 0
+
+    boxes = [
+        draw.textbbox((0, 0), character, font=font)
+        for character in text
+    ]
+    widths = [
+        max(0, box[2] - box[0])
+        for box in boxes
+    ]
+
+    spacing = int(round(font.size * tracking))
+    width = sum(widths) + spacing * max(0, len(text) - 1)
+
+    full_box = draw.textbbox((0, 0), text, font=font)
+    height = full_box[3] - full_box[1]
+
+    return width, height
+
+
+def _draw_tracked_text(
+    draw,
+    position,
+    text,
+    font,
+    fill,
+    tracking,
+):
+    text = str(text or "")
+
+    if not text:
+        return 0
+
+    x, y = position
+    spacing = int(round(font.size * tracking))
+    cursor = float(x)
+
+    for character in text:
+        box = draw.textbbox(
+            (0, 0),
+            character,
+            font=font,
+        )
+        width = max(0, box[2] - box[0])
+
+        draw.text(
+            (int(round(cursor)), y),
+            character,
+            font=font,
+            fill=fill,
+        )
+
+        cursor += width + spacing
+
+    return int(round(cursor - x))
+
+
+def _fit_v4_profile_font(
+    draw,
+    text,
+    max_width,
+    start_size,
+    minimum,
+    profile,
+    tracking,
+    regular=False,
+):
+    size = int(start_size)
+
+    while size > minimum:
+        font = _v4_profile_font(
+            profile,
+            size,
+            regular=regular,
+        )
+        width, _ = _tracked_text_metrics(
+            draw,
+            text,
+            font,
+            tracking,
+        )
+
+        if width <= max_width:
+            return font
+
+        size -= 2
+
+    return _v4_profile_font(
+        profile,
+        minimum,
+        regular=regular,
+    )
+
+
 def _split_wordmark(name: str):
     name = str(name or "").strip()
 
@@ -3199,66 +3588,106 @@ def _draw_premium_wordmark(
     draw = ImageDraw.Draw(canvas)
 
     name = str(business_name or "Brand").strip()
-    style = parameters["font_style"]
     ink = _premium_ink(parameters)
+    profile = _v4_typography_profile(parameters)
+    personality = str(
+        parameters.get("typography_personality") or "modern"
+    ).strip().lower()
+    seed = parameters.get("seed", 0)
 
-    start_size = 158 if stacked else 120
-    minimum = 70 if stacked else 48
+    tracking = profile["tracking"]
 
-    font = _fit_font(
+    # Saved-seed variation stays deliberately subtle. Typography personality
+    # remains stable while separate generations receive a small custom touch.
+    tracking += _seed_fraction(
+        seed,
+        301,
+        -0.006,
+        0.006,
+    )
+
+    # Sharpen the distinction between the two serif identities.
+    if personality == "elegant":
+        tracking += 0.018
+    elif personality == "classic":
+        tracking -= 0.004
+
+    descriptor_tracking = profile["descriptor_tracking"]
+
+    # Descriptor tracking must survive card/thumbnail scaling.
+    descriptor_tracking = min(
+        descriptor_tracking,
+        0.105 if stacked else 0.09,
+    )
+
+    # Give the wordmark more visual authority in the identity.
+    start_size = 174 if stacked else 130
+    minimum = 76 if stacked else 52
+    start_size = int(start_size * profile["size_factor"])
+
+    font = _fit_v4_profile_font(
         draw,
         name,
         max_width,
         start_size,
         minimum,
-        style,
+        profile,
+        tracking,
     )
 
     emphasis = parameters["wordmark_emphasis"]
 
-    # Measure using one common baseline/bounding box.
-    full_box = draw.textbbox(
-        (0, 0),
+    full_width, name_height = _tracked_text_metrics(
+        draw,
         name,
-        font=font,
+        font,
+        tracking,
     )
-    name_height = full_box[3] - full_box[1]
+
+    name_x = position[0] - full_width // 2
 
     if emphasis == "single":
-        tw = full_box[2] - full_box[0]
-        name_x = position[0] - tw // 2
-
-        draw.text(
+        _draw_tracked_text(
+            draw,
             (name_x, position[1]),
             name,
-            font=font,
-            fill=ink,
+            font,
+            ink,
+            tracking,
         )
 
     else:
         first, second = _split_wordmark(name)
 
-        first_box = draw.textbbox(
-            (0, 0),
+        first_width, _ = _tracked_text_metrics(
+            draw,
             first,
-            font=font,
+            font,
+            tracking,
         )
-        second_box = draw.textbbox(
-            (0, 0),
+        second_width, _ = _tracked_text_metrics(
+            draw,
             second,
-            font=font,
+            font,
+            tracking,
         )
 
-        w1 = first_box[2] - first_box[0]
-        w2 = second_box[2] - second_box[0]
-        total = w1 + w2
+        spacing = (
+            int(round(font.size * tracking))
+            if first and second
+            else 0
+        )
+
+        total = first_width + second_width + spacing
         x = position[0] - total // 2
 
-        draw.text(
+        drawn_first = _draw_tracked_text(
+            draw,
             (x, position[1]),
             first,
-            font=font,
-            fill=ink,
+            font,
+            ink,
+            tracking,
         )
 
         if second:
@@ -3268,44 +3697,45 @@ def _draw_premium_wordmark(
                 else parameters["secondary"]
             )
 
-            draw.text(
-                (x + w1, position[1]),
+            _draw_tracked_text(
+                draw,
+                (
+                    x + drawn_first + spacing,
+                    position[1],
+                ),
                 second,
-                font=font,
-                fill=emphasis_color,
+                font,
+                emphasis_color,
+                tracking,
             )
 
     if not industry:
         return
 
-    # Descriptor spacing is derived from the actual wordmark metrics.
-    # This prevents collision with descenders/large fonts.
     descriptor = str(industry).upper()
 
-    descriptor_font = _fit_font(
+    # Larger descriptor than V4.0 so it stays readable in generated cards
+    # and storyboard/video use later.
+    descriptor_font = _fit_v4_profile_font(
         draw,
         descriptor,
         int(max_width * 0.82),
-        25 if stacked else 23,
-        17,
-        style,
+        31 if stacked else 28,
+        22,
+        profile,
+        descriptor_tracking,
         regular=True,
     )
 
-    descriptor_box = draw.textbbox(
-        (0, 0),
+    descriptor_width, descriptor_height = _tracked_text_metrics(
+        draw,
         descriptor,
-        font=descriptor_font,
+        descriptor_font,
+        descriptor_tracking,
     )
-    descriptor_width = descriptor_box[2] - descriptor_box[0]
 
-    gap = 46 if stacked else 38
-
-    descriptor_y = (
-        position[1]
-        + name_height
-        + gap
-    )
+    gap = 50 if stacked else 42
+    descriptor_y = position[1] + name_height + gap
 
     descriptor_color = (
         "#CBD5E1"
@@ -3313,43 +3743,36 @@ def _draw_premium_wordmark(
         else parameters["secondary"]
     )
 
-    draw.text(
+    _draw_tracked_text(
+        draw,
         (
             position[0] - descriptor_width // 2,
             descriptor_y,
         ),
         descriptor,
-        font=descriptor_font,
-        fill=descriptor_color,
+        descriptor_font,
+        descriptor_color,
+        descriptor_tracking,
     )
 
     rule_width = min(
-        190,
+        230,
         max(
-            80,
-            descriptor_width // 4,
+            105,
+            descriptor_width // 3,
         ),
     )
 
-    descriptor_height = (
-        descriptor_box[3]
-        - descriptor_box[1]
-    )
-
-    rule_y = (
-        descriptor_y
-        + descriptor_height
-        + 25
-    )
+    rule_y = descriptor_y + descriptor_height + 24
 
     draw.rounded_rectangle(
         (
             position[0] - rule_width // 2,
             rule_y,
             position[0] + rule_width // 2,
-            rule_y + 5,
+            rule_y + 7,
         ),
-        radius=2,
+        radius=3,
         fill=parameters["accent"],
     )
 
@@ -3369,21 +3792,19 @@ def _render_premium_png(
     )
 
     layout = parameters["layout"]
-    presentation = parameters.get(
-        "presentation_layout",
-        "",
-    )
+    presentation = str(
+        parameters.get("presentation_layout") or ""
+    ).strip().lower()
 
-    horizontal = (
-        presentation == "horizontal"
-        or (
-            not presentation
-            and layout == "symbol-left"
+    if not presentation:
+        presentation = (
+            "horizontal"
+            if layout == "symbol-left"
+            else "stacked"
         )
-    )
 
-    if horizontal:
-        symbol_box = (65, 285, 515, 735)
+    if presentation == "horizontal":
+        symbol_box = (65, 270, 500, 705)
 
         _draw_premium_symbol(
             canvas,
@@ -3397,15 +3818,55 @@ def _render_premium_png(
             parameters,
             business_name,
             industry,
-            position=(830, 415),
-            max_width=675,
+            position=(845, 410),
+            max_width=650,
             stacked=False,
         )
 
-    else:
-        # Increase stacked identity width from ~53% toward a premium
-        # 65-75% visual footprint while keeping generous clear space.
-        symbol_box = (235, 55, 965, 620)
+    elif presentation == "emblem":
+        symbol_box = (315, 90, 885, 590)
+        construction = parameters.get(
+            "construction",
+            "",
+        )
+
+        # Non-badge constructions receive a restrained containment ring so
+        # this presentation reads differently from an ordinary stacked logo.
+        if construction not in {
+            "structured-badge",
+            "technical-ring",
+            "orbital-spark",
+        }:
+            draw = ImageDraw.Draw(canvas)
+            cx = 600
+            cy = 340
+            radius = 245
+
+            draw.ellipse(
+                (
+                    cx - radius,
+                    cy - radius,
+                    cx + radius,
+                    cy + radius,
+                ),
+                outline=parameters["secondary"],
+                width=8,
+            )
+
+            inner_radius = 218
+
+            draw.arc(
+                (
+                    cx - inner_radius,
+                    cy - inner_radius,
+                    cx + inner_radius,
+                    cy + inner_radius,
+                ),
+                start=205,
+                end=335,
+                fill=parameters["accent"],
+                width=6,
+            )
 
         _draw_premium_symbol(
             canvas,
@@ -3419,8 +3880,48 @@ def _render_premium_png(
             parameters,
             business_name,
             industry,
-            position=(600, 625),
-            max_width=1060,
+            position=(600, 660),
+            max_width=830,
+            stacked=True,
+        )
+
+    elif presentation == "typography-led":
+        symbol_box = (465, 115, 735, 385)
+
+        _draw_premium_symbol(
+            canvas,
+            parameters,
+            business_name,
+            symbol_box,
+        )
+
+        _draw_premium_wordmark(
+            canvas,
+            parameters,
+            business_name,
+            industry,
+            position=(600, 435),
+            max_width=1090,
+            stacked=True,
+        )
+
+    else:
+        symbol_box = (235, 45, 965, 595)
+
+        _draw_premium_symbol(
+            canvas,
+            parameters,
+            business_name,
+            symbol_box,
+        )
+
+        _draw_premium_wordmark(
+            canvas,
+            parameters,
+            business_name,
+            industry,
+            position=(600, 610),
+            max_width=1080,
             stacked=True,
         )
 
