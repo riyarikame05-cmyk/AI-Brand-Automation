@@ -3041,11 +3041,50 @@ def _draw_v4_group_bc_symbol(
     if renderer is None:
         return False
 
+    seed = parameters.get("seed", 0)
+
+    # Fresh generations receive a persisted variant seed. Convert that seed
+    # into restrained geometry changes while preserving each construction's
+    # visual grammar. The transformed box is deterministic, so reopening a
+    # saved specification reproduces the exact same mark.
+    x0, y0, x1, y1 = box
+    width = x1 - x0
+    height = y1 - y0
+    cx = (x0 + x1) / 2
+    cy = (y0 + y1) / 2
+
+    scale_x = _seed_fraction(seed, 201, 0.92, 1.06)
+    scale_y = _seed_fraction(seed, 202, 0.92, 1.06)
+    shift_x = _seed_fraction(seed, 203, -0.025, 0.025) * width
+    shift_y = _seed_fraction(seed, 204, -0.025, 0.025) * height
+
+    # Typography-led swooshes benefit from wider horizontal variation while
+    # circular/badge families stay closer to their original proportions.
+    if construction == "swoosh-wordmark":
+        scale_x = _seed_fraction(seed, 205, 0.88, 1.10)
+        scale_y = _seed_fraction(seed, 206, 0.94, 1.04)
+
+    if construction in {
+        "orbital-spark",
+        "technical-ring",
+        "structured-badge",
+    }:
+        shared_scale = _seed_fraction(seed, 207, 0.94, 1.05)
+        scale_x = shared_scale
+        scale_y = shared_scale
+
+    varied_box = (
+        cx - width * scale_x / 2 + shift_x,
+        cy - height * scale_y / 2 + shift_y,
+        cx + width * scale_x / 2 + shift_x,
+        cy + height * scale_y / 2 + shift_y,
+    )
+
     renderer(
         canvas,
         parameters,
         business_name,
-        box,
+        varied_box,
     )
 
     return True
