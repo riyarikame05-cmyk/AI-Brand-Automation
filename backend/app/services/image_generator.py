@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from .image_provider import generate_image
 from .logo_designer import generate_logo_specification
+from .premium_symbol_selector import (
+    attach_symbol_provenance,
+    select_premium_symbol,
+)
 
 
 # =========================================================
@@ -275,6 +279,24 @@ def generate_logo_image(
     # deterministic BrandAI typography by image_provider.py.
     # =====================================================
 
+    premium_symbol = select_premium_symbol(
+        specification=specification,
+        industry=industry,
+        candidate_index=(
+            direction_index
+            if direction_index is not None
+            else 0
+        ),
+    )
+
+    specification = attach_symbol_provenance(
+        specification,
+        premium_symbol,
+    )
+
+    # Catalog rendering is introduced only after a master has passed
+    # ingestion and visual approval. Until then the proven hybrid/local
+    # renderer remains the production fallback.
     image_bytes = (
         generate_image(
             provider=provider,
