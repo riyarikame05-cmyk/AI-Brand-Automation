@@ -8,7 +8,7 @@ meaning should influence construction without reducing brands to stock icons.
 from __future__ import annotations
 
 import hashlib
-
+from app.services.logo_industry_elements import get_industry_logo_elements
 
 INDUSTRY_DESIGN_DNA = {
     "technology": {
@@ -247,9 +247,11 @@ def normalize_family(family: str) -> str:
 
 def get_industry_design_dna(family: str) -> dict:
     family = normalize_family(family)
+
     return {
         "family": family,
         **INDUSTRY_DESIGN_DNA[family],
+        "logo_elements": get_industry_logo_elements(family),
     }
 
 
