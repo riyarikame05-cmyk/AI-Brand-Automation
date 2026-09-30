@@ -26,6 +26,7 @@ const INDUSTRIES = [
   "Music & Entertainment",
   "Gaming",
   "Construction",
+  "Manufacturing & Engineering",
   "Agriculture",
   "Jewellery",
   "Photography",
