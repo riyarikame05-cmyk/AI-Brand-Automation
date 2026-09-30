@@ -6,6 +6,7 @@ meaning should influence construction without reducing brands to stock icons.
 """
 
 from __future__ import annotations
+from app.services.logo_industry_resolver import resolve_industry
 
 import hashlib
 from app.services.logo_industry_elements import get_industry_logo_elements
@@ -246,12 +247,14 @@ def normalize_family(family: str) -> str:
 
 
 def get_industry_design_dna(family: str) -> dict:
-    family = normalize_family(family)
+    resolved = resolve_industry(family)
+    normalized_family = normalize_family(resolved["family"])
 
     return {
-        "family": family,
-        **INDUSTRY_DESIGN_DNA[family],
-        "logo_elements": get_industry_logo_elements(family),
+        "family": normalized_family,
+        "industry_label": resolved["label"],
+        **INDUSTRY_DESIGN_DNA[normalized_family],
+        "logo_elements": resolved["elements"],
     }
 
 
