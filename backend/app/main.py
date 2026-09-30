@@ -76,6 +76,15 @@ from .services.logo_renderer import (
     render_logo,
 )
 
+from .services.logo_quality import (
+    evaluate_candidate,
+    select_diverse_candidates,
+)
+
+from .services.logo_raster_quality import (
+    analyze_logo_png,
+)
+
 from .services.video_provider import (
     generate_video,
 )
@@ -378,16 +387,20 @@ def create_logo_concepts(
     creative_prompt: str = "",
 ):
     """
-    Generate logo concepts and commit each completed concept
-    independently so SQLite does not retain a writer lock
-    while the next AI generation is running.
-    """
+    Generate a bounded internal candidate pool, measure rendered output,
+    reject weak candidates, select a diverse top set, and persist only
+    the requested number of winners.
 
-    concepts = []
+    Expensive generation happens before any Asset writer transaction.
+    """
 
     custom_colors = custom_colors or []
 
-    effective_style = logo_style.strip() if logo_style.strip() else project.style
+    effective_style = (
+        logo_style.strip()
+        if logo_style.strip()
+        else project.style
+    )
 
     existing_logo_count = (
         db.query(Asset)
@@ -401,45 +414,57 @@ def create_logo_concepts(
     project_id = project.id
     business_name = project.business_name
     industry = project.industry
-    style = project.style
     description = project.description
+
+    pool_sizes = {
+        3: 6,
+        6: 10,
+        9: 14,
+    }
+    pool_size = pool_sizes.get(count, count)
 
     print("")
     print("========================================")
-    print("[LOGO] STARTING LOGO BATCH")
+    print("[LOGO] STARTING QUALITY-GATED BATCH")
     print(f"[LOGO] Project: {project_id}")
     print(f"[LOGO] Business: {business_name}")
     print(f"[LOGO] Existing concepts: {existing_logo_count}")
-    print(f"[LOGO] New concepts requested: {count}")
+    print(f"[LOGO] Winners requested: {count}")
+    print(f"[LOGO] Internal candidate pool: {pool_size}")
     print(f"[LOGO] Logo style: {effective_style}")
     print(f"[LOGO] Palette: {palette_name}")
     print(
-        f"[LOGO] Custom colors: "
+        "[LOGO] Custom colors: "
         f"{custom_colors if custom_colors else 'none'}"
     )
     print(
-        f"[LOGO] Creative prompt: "
+        "[LOGO] Creative prompt: "
         f"{creative_prompt if creative_prompt else 'none'}"
     )
     print("========================================")
 
+    candidates = []
+
     try:
-        for number in range(count):
-            absolute_index = existing_logo_count + number
-
-            direction_index = absolute_index % 6
-
-            concept_number = absolute_index + 1
+        for pool_index in range(pool_size):
+            absolute_index = (
+                existing_logo_count
+                + pool_index
+            )
+            direction_index = absolute_index % 9
 
             print("")
             print("----------------------------------------")
-            print(f"[LOGO] Generating concept " f"{concept_number}")
-            print(f"[LOGO] Creative direction: " f"{direction_index}")
+            print(
+                "[LOGO] Building internal candidate "
+                f"{pool_index + 1}/{pool_size}"
+            )
+            print(
+                "[LOGO] Creative direction: "
+                f"{direction_index}"
+            )
             print("----------------------------------------")
 
-            # Keep local rendering enabled while validating
-            # SQLite persistence. Hybrid auto routing is the
-            # next controlled change.
             generation_result = generate_logo_image(
                 business_name=business_name,
                 industry=industry,
@@ -450,12 +475,10 @@ def create_logo_concepts(
                 palette_name=palette_name,
                 custom_colors=custom_colors,
                 creative_prompt=creative_prompt,
+                use_ai_specification=False,
             )
 
-            if not isinstance(
-                generation_result,
-                dict,
-            ):
+            if not isinstance(generation_result, dict):
                 raise RuntimeError(
                     "Logo generator returned invalid result data."
                 )
@@ -463,15 +486,11 @@ def create_logo_concepts(
             image_bytes = generation_result.get(
                 "image_bytes"
             )
-
             specification = generation_result.get(
                 "specification"
             )
 
-            if not isinstance(
-                specification,
-                dict,
-            ):
+            if not isinstance(specification, dict):
                 raise RuntimeError(
                     "Logo generator returned invalid specification."
                 )
@@ -480,18 +499,265 @@ def create_logo_concepts(
                 image_bytes,
                 (bytes, bytearray),
             ):
-                raise RuntimeError("Logo generator returned invalid image data.")
+                raise RuntimeError(
+                    "Logo generator returned invalid image data."
+                )
+
+            image_bytes = bytes(image_bytes)
 
             if len(image_bytes) < 1000:
-                raise RuntimeError("Generated logo is too small or invalid.")
+                raise RuntimeError(
+                    "Generated logo is too small or invalid."
+                )
 
-            filename = f"{project_id}-" f"logo-{concept_number}-" f"{uuid.uuid4()}.png"
+            raster = analyze_logo_png(image_bytes)
 
+            semantic_relevance = 0.72
+            if specification.get("semantic_territory"):
+                semantic_relevance += 0.08
+            if specification.get("industry_form"):
+                semantic_relevance += 0.06
+
+            distinctiveness = 0.68
+            if specification.get("identity_strategy"):
+                distinctiveness += 0.06
+            if specification.get("identity_construction"):
+                distinctiveness += 0.05
+            if specification.get("negative_space_idea"):
+                distinctiveness += 0.04
+
+            initial_role = str(
+                specification.get(
+                    "initial_role",
+                    "",
+                )
+            ).strip().lower()
+
+            initial_integration = (
+                0.78
+                if initial_role
+                and initial_role
+                not in {"none", "avoid", "unused"}
+                else 0.58
+            )
+
+            element_count = int(
+                specification.get(
+                    "element_count",
+                    4,
+                )
+                or 4
+            )
+
+            quality = evaluate_candidate(
+                element_count=element_count,
+                max_elements=8,
+                occupancy=raster["bbox_occupancy"],
+                contrast=raster["contrast"],
+                small_size_survival=(
+                    raster["small_size_survival"]
+                ),
+                balance=raster["balance"],
+                silhouette_strength=(
+                    raster["silhouette_strength"]
+                ),
+                semantic_relevance=min(
+                    1.0,
+                    semantic_relevance,
+                ),
+                distinctiveness=min(
+                    1.0,
+                    distinctiveness,
+                ),
+                initial_integration=initial_integration,
+                disconnected_fragments=0,
+                cliche_detected=False,
+            )
+
+            if raster["edge_clipped"]:
+                quality["accepted"] = False
+                quality["reasons"] = tuple(
+                    list(quality.get("reasons", ()))
+                    + ["edge-clipped"]
+                )
+
+            strategy = str(
+                specification.get(
+                    "identity_strategy",
+                    "",
+                )
+            )
+            construction = str(
+                specification.get(
+                    "identity_construction",
+                    "",
+                )
+            )
+            industry_form = str(
+                specification.get(
+                    "industry_form",
+                    "",
+                )
+            )
+            variant_key = str(
+                specification.get(
+                    "v5_variant_key",
+                    specification.get(
+                        "variant_seed",
+                        pool_index,
+                    ),
+                )
+            )
+
+            strategy_codes = {
+                "bespoke-monogram": 0.10,
+                "negative-space-glyph": 0.22,
+                "abstract-semantic": 0.34,
+                "continuous-line": 0.46,
+                "modular-geometry": 0.58,
+                "signature-emblem": 0.70,
+                "motion-ribbon": 0.82,
+                "typography-led": 0.91,
+                "experimental-fusion": 1.00,
+            }
+
+            features = {
+                "occupancy": raster[
+                    "bbox_occupancy"
+                ],
+                "balance": raster["balance"],
+                "silhouette_strength": raster[
+                    "silhouette_strength"
+                ],
+                "semantic_relevance": min(
+                    1.0,
+                    semantic_relevance,
+                ),
+                "initial_integration": (
+                    initial_integration
+                ),
+                "angularity": strategy_codes.get(
+                    strategy,
+                    0.50,
+                ),
+                "openness": raster[
+                    "aspect_balance"
+                ],
+                "symmetry": min(
+                    1.0,
+                    raster["ink_occupancy"] * 2.0,
+                ),
+            }
+
+            specification["quality_gate"] = {
+                "raster": raster,
+                "quality": quality,
+                "internal_pool_index": pool_index,
+                "strategy": strategy,
+                "construction": construction,
+                "industry_form": industry_form,
+            }
+
+            candidates.append(
+                {
+                    "image_bytes": image_bytes,
+                    "specification": specification,
+                    "quality": quality,
+                    "features": features,
+                    "variant_key": variant_key,
+                }
+            )
+
+            print(
+                "[LOGO] Candidate score: "
+                f"{quality['score']:.4f} "
+                f"accepted={quality['accepted']}"
+            )
+
+        selected = select_diverse_candidates(
+            candidates,
+            count=count,
+            minimum_distance=0.055,
+        )
+
+        # The objective gate should improve ranking without making
+        # generation brittle while the legacy V4 renderer remains the
+        # local fallback. Fill any missing slots from the highest-scoring
+        # non-selected candidates, but record that fallback explicitly.
+        if len(selected) < count:
+            selected_ids = {
+                id(candidate)
+                for candidate in selected
+            }
+
+            remaining = sorted(
+                (
+                    candidate
+                    for candidate in candidates
+                    if id(candidate)
+                    not in selected_ids
+                ),
+                key=lambda candidate: (
+                    -float(
+                        candidate.get(
+                            "quality",
+                            {},
+                        ).get("score", 0.0)
+                    ),
+                    str(
+                        candidate.get(
+                            "variant_key",
+                            "",
+                        )
+                    ),
+                ),
+            )
+
+            for candidate in remaining:
+                candidate["specification"][
+                    "quality_gate"
+                ]["fallback_selection"] = True
+
+                selected.append(candidate)
+
+                if len(selected) >= count:
+                    break
+
+        if len(selected) < count:
+            raise RuntimeError(
+                "Logo quality gate could not produce "
+                f"{count} usable concepts."
+            )
+
+        concepts = []
+
+        for winner_index, candidate in enumerate(
+            selected[:count]
+        ):
+            concept_number = (
+                existing_logo_count
+                + winner_index
+                + 1
+            )
+
+            specification = candidate[
+                "specification"
+            ]
+            image_bytes = candidate["image_bytes"]
+
+            filename = (
+                f"{project_id}-"
+                f"logo-{concept_number}-"
+                f"{uuid.uuid4()}.png"
+            )
             file_path = GENERATED_DIR / filename
 
-            file_path.write_bytes(bytes(image_bytes))
+            file_path.write_bytes(image_bytes)
 
-            image_url = "http://127.0.0.1:8000" f"/generated/{filename}"
+            image_url = (
+                "http://127.0.0.1:8000"
+                f"/generated/{filename}"
+            )
 
             palette = {
                 "primary_color": specification.get(
@@ -514,9 +780,9 @@ def create_logo_concepts(
                     asset_type="logo",
                     url=image_url,
                     prompt=(
-                        f"Logo concept {concept_number} "
-                        f"for {business_name} "
-                        f"(direction {direction_index})"
+                        f"Quality-selected logo concept "
+                        f"{concept_number} for "
+                        f"{business_name}"
                     ),
                     specification=json.dumps(
                         specification
@@ -525,9 +791,6 @@ def create_logo_concepts(
                 )
 
                 db.add(asset)
-
-                # Commit immediately to release SQLite's
-                # writer lock before the next AI operation.
                 db.commit()
                 db.refresh(asset)
 
@@ -549,11 +812,19 @@ def create_logo_concepts(
                 }
             )
 
-            print(f"[LOGO] Concept " f"{concept_number} complete.")
+            print(
+                "[LOGO] Persisted winner "
+                f"{winner_index + 1}/{count} "
+                f"score="
+                f"{candidate['quality']['score']:.4f}"
+            )
 
         print("")
         print("========================================")
-        print(f"[LOGO] Generated " f"{len(concepts)} concepts successfully.")
+        print(
+            f"[LOGO] Selected {len(concepts)} "
+            f"winners from {pool_size} candidates."
+        )
         print("========================================")
 
         return concepts

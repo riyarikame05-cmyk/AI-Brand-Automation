@@ -366,6 +366,7 @@ def generate_logo_specification(
     palette_name: str = "",
     custom_colors: list[str] | None = None,
     creative_prompt: str = "",
+    use_ai: bool = True,
 ) -> dict:
     """
     Generate one structured logo specification with Ollama.
@@ -834,51 +835,59 @@ layers must be 1 through 4.
 stroke_width must be 8 through 35.
 """
 
-    try:
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "temperature": 0.78,
-                    "seed": random.randint(
-                        1,
-                        2_000_000_000,
-                    ),
+    specification = {}
+
+    if use_ai:
+        try:
+            response = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                    "options": {
+                        "temperature": 0.78,
+                        "seed": random.randint(
+                            1,
+                            2_000_000_000,
+                        ),
+                    },
                 },
-            },
-            timeout=120,
-        )
+                timeout=120,
+            )
 
-        response.raise_for_status()
+            response.raise_for_status()
 
-        result = response.json()
+            result = response.json()
 
-        raw_response = result.get(
-            "response",
-            "{}",
-        )
+            raw_response = result.get(
+                "response",
+                "{}",
+            )
 
-        specification = json.loads(
-            raw_response
-        )
+            specification = json.loads(
+                raw_response
+            )
 
-        if not isinstance(
-            specification,
-            dict,
-        ):
+            if not isinstance(
+                specification,
+                dict,
+            ):
+                specification = {}
+
+        except Exception as error:
+            print(
+                "Logo designer AI error:",
+                repr(error),
+            )
+
             specification = {}
-
-    except Exception as error:
+    else:
         print(
-            "Logo designer AI error:",
-            repr(error),
+            "[LOGO DESIGNER] Fast deterministic "
+            "specification mode."
         )
-
-        specification = {}
 
     specification = sanitize_flat_logo_specification(
         specification

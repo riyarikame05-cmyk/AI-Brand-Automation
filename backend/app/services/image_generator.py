@@ -18,6 +18,7 @@ def generate_logo_image(
     palette_name: str = "",
     custom_colors: list[str] | None = None,
     creative_prompt: str = "",
+    use_ai_specification: bool = True,
 ) -> dict:
     """
     Generate one complete logo concept.
@@ -123,6 +124,7 @@ def generate_logo_image(
             palette_name=palette_name,
             custom_colors=custom_colors,
             creative_prompt=creative_prompt,
+            use_ai=use_ai_specification,
         )
     )
 
