@@ -99,6 +99,13 @@ interface SelectLogoResponse {
   video?: Asset | null;
 }
 
+interface RefineLogoResponse {
+  message: string;
+  source_logo_id: string;
+  revision_number: number;
+  logo: Asset;
+}
+
 // ======================================================
 // DESIGN DIRECTIONS
 // ======================================================
@@ -263,6 +270,36 @@ export default function ProjectPage() {
     useState(false);
 
   const [selectingLogo, setSelectingLogo] =
+    useState<string | null>(null);
+
+  const [refiningLogo, setRefiningLogo] =
+    useState(false);
+
+  const [refinePrimary, setRefinePrimary] =
+    useState("");
+
+  const [refineSecondary, setRefineSecondary] =
+    useState("");
+
+  const [refineAccent, setRefineAccent] =
+    useState("");
+
+  const [refineTypography, setRefineTypography] =
+    useState("modern");
+
+  const [refineLayout, setRefineLayout] =
+    useState("horizontal");
+
+  const [refineBackground, setRefineBackground] =
+    useState("light");
+
+  const [refineTreatment, setRefineTreatment] =
+    useState("premium-gradient");
+
+  const [refineInstruction, setRefineInstruction] =
+    useState("");
+
+  const [latestRefinementId, setLatestRefinementId] =
     useState<string | null>(null);
 
   const [error, setError] =
@@ -573,6 +610,83 @@ export default function ProjectPage() {
   }
 
   // ======================================================
+  // REFINE LOGO
+  // ======================================================
+
+  async function refineSelectedLogo() {
+    if (
+      !projectId ||
+      !selectedLogo ||
+      refiningLogo ||
+      selectingLogo ||
+      generating
+    ) {
+      return;
+    }
+
+    try {
+      setRefiningLogo(true);
+      setError("");
+      setSuccessMessage("");
+
+      const response = await fetch(
+        `${API}/projects/${projectId}/logos/${selectedLogo.id}/refine`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            primary_color: refinePrimary,
+            secondary_color: refineSecondary,
+            accent_color: refineAccent,
+            typography_personality: refineTypography,
+            presentation_layout: refineLayout,
+            background_mode: refineBackground,
+            treatment: refineTreatment,
+            instruction: refineInstruction,
+          }),
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Could not refine logo."
+          )
+        );
+      }
+
+      const data: RefineLogoResponse =
+        await response.json();
+
+      setLatestRefinementId(data.logo.id);
+
+      await loadData(false);
+
+      setSuccessMessage(
+        `Logo refinement ${data.revision_number} created. Compare it below before selecting it.`
+      );
+    } catch (err) {
+      console.error(
+        "Logo refinement error:",
+        err
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not refine logo."
+      );
+    } finally {
+      setRefiningLogo(false);
+    }
+  }
+
+  // ======================================================
   // DERIVED DATA
   // ======================================================
 
@@ -604,18 +718,72 @@ export default function ProjectPage() {
       );
   }, [assets]);
 
-  const selectedLogo = useMemo(
-    () =>
-      logos.find(
-        (logo) => logo.is_selected
-      ) ?? null,
-    [logos]
-  );
+  const selectedLogo =
+    logos.find(
+      (logo) => logo.is_selected
+    ) ?? null;
+
+  const latestRefinement =
+    latestRefinementId
+      ? logos.find(
+          (logo) =>
+            logo.id === latestRefinementId
+        ) ?? null
+      : null;
 
   const latestVideo =
     videos.length > 0
       ? videos[videos.length - 1]
       : null;
+
+  useEffect(() => {
+    if (!selectedLogo) return;
+
+    const spec =
+      selectedLogo.specification || {};
+
+    setRefinePrimary(
+      typeof spec.primary_color === "string"
+        ? spec.primary_color
+        : ""
+    );
+
+    setRefineSecondary(
+      typeof spec.secondary_color === "string"
+        ? spec.secondary_color
+        : ""
+    );
+
+    setRefineAccent(
+      typeof spec.accent_color === "string"
+        ? spec.accent_color
+        : ""
+    );
+
+    setRefineTypography(
+      typeof spec.typography_personality === "string"
+        ? spec.typography_personality
+        : "modern"
+    );
+
+    setRefineLayout(
+      typeof spec.presentation_layout === "string"
+        ? spec.presentation_layout
+        : "horizontal"
+    );
+
+    setRefineBackground(
+      typeof spec.background_mode === "string"
+        ? spec.background_mode
+        : "light"
+    );
+
+    setRefineTreatment(
+      typeof spec.treatment === "string"
+        ? spec.treatment
+        : "premium-gradient"
+    );
+  }, [selectedLogo]);
 
   const displayedBrandPalette =
     useMemo(() => {
@@ -788,7 +956,7 @@ export default function ProjectPage() {
 
               {selectedLogo && (
                 <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                  âœ“ Identity selected
+                  Ã¢Å“â€œ Identity selected
                 </span>
               )}
             </div>
@@ -807,9 +975,9 @@ export default function ProjectPage() {
               href={`/projects/${projectId}/tools`}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-700 hover:shadow-md"
             >
-              <span>âœ¦</span>
+              <span>Ã¢Å“Â¦</span>
               Creative Tools
-              <span>-></span>
+              <span>&rarr;</span>
             </Link>
 
             <button
@@ -855,7 +1023,7 @@ export default function ProjectPage() {
                 role="status"
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm text-emerald-700"
               >
-                âœ“ {successMessage}
+                Ã¢Å“â€œ {successMessage}
               </div>
             )}
           </section>
@@ -960,7 +1128,7 @@ export default function ProjectPage() {
 
                         {selected && (
                           <span className="absolute right-4 top-4 z-10 rounded-full bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white">
-                            âœ“ Selected
+                            Ã¢Å“â€œ Selected
                           </span>
                         )}
 
@@ -1083,7 +1251,7 @@ export default function ProjectPage() {
                           {selecting
                             ? "Building identity..."
                             : selected
-                              ? "âœ“ Selected direction"
+                              ? "Ã¢Å“â€œ Selected direction"
                               : "Choose this direction"}
                         </button>
                       </div>
@@ -1095,7 +1263,7 @@ export default function ProjectPage() {
           ) : (
             <div className="mt-7 rounded-[22px] border border-dashed border-violet-200 bg-white/70 px-6 py-16 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-lg text-violet-600">
-                â—‡
+                Ã¢â€”â€¡
               </div>
 
               <h3 className="mt-5 text-base font-semibold text-zinc-900">
@@ -1190,6 +1358,231 @@ export default function ProjectPage() {
               been developed into a complete
               identity system.
             </p>
+
+            {/* Logo refinement */}
+
+            <div className="mt-8 rounded-[24px] border border-violet-100 bg-gradient-to-br from-white to-violet-50/40 p-6 shadow-sm">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-600">
+                    Logo refinement
+                  </p>
+
+                  <h3 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-zinc-950">
+                    Refine without losing your approved identity
+                  </h3>
+
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+                    Adjust color, typography and composition. Your selected original stays untouched until you approve a revision.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                {[
+                  ["Primary", refinePrimary, setRefinePrimary],
+                  ["Secondary", refineSecondary, setRefineSecondary],
+                  ["Accent", refineAccent, setRefineAccent],
+                ].map(([label, value, setter]) => (
+                  <label
+                    key={label as string}
+                    className="block"
+                  >
+                    <span className="text-xs font-semibold text-zinc-600">
+                      {label as string} color
+                    </span>
+
+                    <div className="mt-2 flex h-11 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3">
+                      <input
+                        type="color"
+                        value={
+                          /^#[0-9A-Fa-f]{6}$/.test(value as string)
+                            ? value as string
+                            : "#171717"
+                        }
+                        onChange={(event) =>
+                          (setter as (value: string) => void)(
+                            event.target.value.toUpperCase()
+                          )
+                        }
+                        className="h-7 w-8 cursor-pointer border-0 bg-transparent p-0"
+                      />
+
+                      <input
+                        value={value as string}
+                        onChange={(event) =>
+                          (setter as (value: string) => void)(
+                            event.target.value.toUpperCase()
+                          )
+                        }
+                        placeholder="#171717"
+                        maxLength={7}
+                        className="min-w-0 flex-1 bg-transparent text-sm font-medium text-zinc-800 outline-none"
+                      />
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <label className="block">
+                  <span className="text-xs font-semibold text-zinc-600">
+                    Typography
+                  </span>
+                  <select
+                    value={refineTypography}
+                    onChange={(event) =>
+                      setRefineTypography(event.target.value)
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none"
+                  >
+                    <option value="modern">Modern</option>
+                    <option value="geometric">Geometric</option>
+                    <option value="elegant">Elegant</option>
+                    <option value="classic">Classic</option>
+                    <option value="bold">Bold</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-zinc-600">
+                    Layout
+                  </span>
+                  <select
+                    value={refineLayout}
+                    onChange={(event) =>
+                      setRefineLayout(event.target.value)
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none"
+                  >
+                    <option value="horizontal">Horizontal</option>
+                    <option value="stacked">Stacked</option>
+                    <option value="emblem">Emblem</option>
+                    <option value="typography-led">Typography led</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-zinc-600">
+                    Presentation
+                  </span>
+                  <select
+                    value={refineBackground}
+                    onChange={(event) =>
+                      setRefineBackground(event.target.value)
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none"
+                  >
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-zinc-600">
+                    Treatment
+                  </span>
+                  <select
+                    value={refineTreatment}
+                    onChange={(event) =>
+                      setRefineTreatment(event.target.value)
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none"
+                  >
+                    <option value="premium-gradient">Premium</option>
+                    <option value="flat">Flat</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="mt-4 block">
+                <span className="text-xs font-semibold text-zinc-600">
+                  Refinement note
+                </span>
+
+                <textarea
+                  value={refineInstruction}
+                  onChange={(event) =>
+                    setRefineInstruction(event.target.value)
+                  }
+                  maxLength={500}
+                  rows={3}
+                  placeholder="Example: Make the identity more refined and editorial while preserving the core symbol."
+                  className="mt-2 w-full resize-none rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 text-zinc-800 outline-none placeholder:text-zinc-400"
+                />
+              </label>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={refineSelectedLogo}
+                  disabled={
+                    refiningLogo ||
+                    selectingLogo !== null ||
+                    generating
+                  }
+                  className="inline-flex h-11 items-center gap-2 rounded-xl bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {refiningLogo && (
+                    <span className="studio-spinner h-4 w-4 rounded-full border-2 border-white/30 border-t-white" />
+                  )}
+
+                  {refiningLogo
+                    ? "Creating revision..."
+                    : "Create refinement"}
+                </button>
+
+                <span className="text-xs text-zinc-400">
+                  Original logo remains unchanged.
+                </span>
+              </div>
+
+              {latestRefinement && (
+                <div className="mt-6 grid gap-5 border-t border-violet-100 pt-6 md:grid-cols-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                      Current selected
+                    </p>
+                    <div className="mt-3 flex min-h-[220px] items-center justify-center rounded-xl bg-zinc-50 p-6">
+                      <img
+                        src={getAssetUrl(selectedLogo.url)}
+                        alt="Current selected logo"
+                        className="max-h-[180px] max-w-full object-contain"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-violet-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-violet-600">
+                      New revision
+                    </p>
+                    <div className="mt-3 flex min-h-[220px] items-center justify-center rounded-xl bg-zinc-50 p-6">
+                      <img
+                        src={getAssetUrl(latestRefinement.url)}
+                        alt="Refined logo revision"
+                        className="max-h-[180px] max-w-full object-contain"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectLogo(latestRefinement.id)
+                      }
+                      disabled={
+                        selectingLogo !== null ||
+                        refiningLogo
+                      }
+                      className="mt-4 h-10 w-full rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+                    >
+                      {selectingLogo === latestRefinement.id
+                        ? "Selecting revision..."
+                        : "Approve this revision"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Logo + palette */}
 
@@ -1370,7 +1763,7 @@ export default function ProjectPage() {
 
                     {brandKit.slogan && (
                       <h3 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] sm:text-4xl">
-                        â€œ{brandKit.slogan}â€
+                        Ã¢â‚¬Å“{brandKit.slogan}Ã¢â‚¬Â
                       </h3>
                     )}
 
@@ -1443,7 +1836,7 @@ export default function ProjectPage() {
                       </p>
 
                       <p className="mt-0.5 text-xs text-zinc-400">
-                        MP4 Â· Generated from selected identity
+                        MP4 Ã‚Â· Generated from selected identity
                       </p>
                     </div>
 
@@ -1464,7 +1857,7 @@ export default function ProjectPage() {
                 <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
                   <div>
                     <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
-                      â–¶
+                      Ã¢â€“Â¶
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-zinc-800">
@@ -1532,7 +1925,7 @@ export default function ProjectPage() {
             title="Brand identity"
             value={
               selectedLogo
-                ? "Selected âœ“"
+                ? "Selected Ã¢Å“â€œ"
                 : "Awaiting selection"
             }
           />
@@ -1589,7 +1982,7 @@ function StudioCard({
 
         {badge && (
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-            âœ“ {badge}
+            Ã¢Å“â€œ {badge}
           </span>
         )}
       </div>
@@ -1670,7 +2063,7 @@ function ColorCard({
       </div>
 
       <span className="ml-auto text-[11px] font-medium text-zinc-400 transition group-hover:text-violet-600">
-        {copied ? "Copied âœ“" : "Copy"}
+        {copied ? "Copied Ã¢Å“â€œ" : "Copy"}
       </span>
     </button>
   );
@@ -1707,4 +2100,3 @@ function SummaryCard({
     </div>
   );
 }
-

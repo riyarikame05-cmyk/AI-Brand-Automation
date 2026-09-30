@@ -72,6 +72,10 @@ from .services.image_provider import (
     generate_image,
 )
 
+from .services.logo_renderer import (
+    render_logo,
+)
+
 from .services.video_provider import (
     generate_video,
 )
@@ -145,6 +149,17 @@ class LogoGenerationRequest(BaseModel):
 class CampaignImageRequest(BaseModel):
     prompt: str = ""
     provider: str = "auto"
+
+
+class LogoRefinementRequest(BaseModel):
+    primary_color: str = ""
+    secondary_color: str = ""
+    accent_color: str = ""
+    typography_personality: str = ""
+    presentation_layout: str = ""
+    background_mode: str = ""
+    treatment: str = ""
+    instruction: str = ""
 
 
 # =========================================================
@@ -996,6 +1011,336 @@ def generate_more_logos(
 # =========================================================
 
 
+# =========================================================
+# REFINE LOGO
+# =========================================================
+
+
+@app.post(
+    "/projects/{project_id}/logos/{asset_id}/refine"
+)
+def refine_logo(
+    project_id: UUID,
+    asset_id: UUID,
+    request: LogoRefinementRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Create a controlled revision of an existing logo.
+
+    The source asset is never modified. The revision inherits the complete
+    persisted specification, applies only validated refinement controls,
+    rerenders deterministically, and is saved as a new logo Asset.
+    """
+
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id)
+        .first()
+    )
+
+    if project is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found.",
+        )
+
+    source = (
+        db.query(Asset)
+        .filter(
+            Asset.id == asset_id,
+            Asset.project_id == project.id,
+            Asset.asset_type == "logo",
+        )
+        .first()
+    )
+
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Source logo not found.",
+        )
+
+    try:
+        specification = (
+            json.loads(source.specification)
+            if source.specification
+            else {}
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Source logo specification is invalid.",
+        ) from error
+
+    if not isinstance(specification, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Source logo specification is invalid.",
+        )
+
+    # -----------------------------------------------------
+    # VALIDATED REFINEMENT CONTROLS
+    # -----------------------------------------------------
+
+    def validated_hex(
+        value: str,
+        field_name: str,
+    ) -> str:
+        cleaned = str(value or "").strip().upper()
+
+        if not cleaned:
+            return ""
+
+        if (
+            len(cleaned) != 7
+            or cleaned[0] != "#"
+            or any(
+                character not in "0123456789ABCDEF"
+                for character in cleaned[1:]
+            )
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{field_name} must be a "
+                    "6-digit HEX color."
+                ),
+            )
+
+        return cleaned
+
+    color_updates = {
+        "primary_color": validated_hex(
+            request.primary_color,
+            "primary_color",
+        ),
+        "secondary_color": validated_hex(
+            request.secondary_color,
+            "secondary_color",
+        ),
+        "accent_color": validated_hex(
+            request.accent_color,
+            "accent_color",
+        ),
+    }
+
+    for key, value in color_updates.items():
+        if value:
+            specification[key] = value
+
+    typography = (
+        str(request.typography_personality or "")
+        .strip()
+        .lower()
+    )
+
+    allowed_typography = {
+        "modern",
+        "geometric",
+        "elegant",
+        "classic",
+        "bold",
+    }
+
+    if typography:
+        if typography not in allowed_typography:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported typography personality.",
+            )
+        specification["typography_personality"] = typography
+
+    layout = (
+        str(request.presentation_layout or "")
+        .strip()
+        .lower()
+    )
+
+    allowed_layouts = {
+        "stacked",
+        "horizontal",
+        "emblem",
+        "typography-led",
+    }
+
+    if layout:
+        if layout not in allowed_layouts:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported presentation layout.",
+            )
+        specification["presentation_layout"] = layout
+
+    background_mode = (
+        str(request.background_mode or "")
+        .strip()
+        .lower()
+    )
+
+    if background_mode:
+        if background_mode not in {"light", "dark"}:
+            raise HTTPException(
+                status_code=400,
+                detail="background_mode must be light or dark.",
+            )
+        specification["background_mode"] = background_mode
+
+    treatment = (
+        str(request.treatment or "")
+        .strip()
+        .lower()
+    )
+
+    if treatment:
+        if treatment not in {
+            "flat",
+            "premium-gradient",
+        }:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported logo treatment.",
+            )
+        specification["treatment"] = treatment
+
+    instruction = str(
+        request.instruction or ""
+    ).strip()
+
+    if len(instruction) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Refinement instruction is too long.",
+        )
+
+    # -----------------------------------------------------
+    # REVISION LINEAGE
+    # -----------------------------------------------------
+
+    refinement = specification.get("refinement")
+    if not isinstance(refinement, dict):
+        refinement = {}
+
+    try:
+        previous_revision = int(
+            refinement.get("revision_number", 0)
+        )
+    except (TypeError, ValueError):
+        previous_revision = 0
+
+    root_asset_id = str(
+        refinement.get("root_asset_id")
+        or source.id
+    )
+
+    specification["refinement"] = {
+        "root_asset_id": root_asset_id,
+        "parent_asset_id": str(source.id),
+        "revision_number": previous_revision + 1,
+        "instruction": instruction,
+        "controls": {
+            "primary_color": color_updates["primary_color"],
+            "secondary_color": color_updates["secondary_color"],
+            "accent_color": color_updates["accent_color"],
+            "typography_personality": typography,
+            "presentation_layout": layout,
+            "background_mode": background_mode,
+            "treatment": treatment,
+        },
+    }
+
+    # A revision must be deterministic but should have its own persisted
+    # identity rather than silently changing the source specification.
+    revision_id = uuid.uuid4()
+    specification["refinement_revision_id"] = str(
+        revision_id
+    )
+
+    try:
+        rendered = render_logo(
+            project.business_name,
+            project.industry,
+            specification,
+        )
+
+        png = rendered.get("png")
+
+        if not isinstance(
+            png,
+            (bytes, bytearray),
+        ) or len(png) < 1000:
+            raise RuntimeError(
+                "Logo renderer returned invalid PNG data."
+            )
+
+        filename = (
+            f"logo_refinement_"
+            f"{project.id.hex}_"
+            f"{revision_id.hex}.png"
+        )
+
+        output_path = GENERATED_DIR / filename
+        output_path.write_bytes(bytes(png))
+
+        url = (
+            f"http://127.0.0.1:8000"
+            f"/generated/{filename}"
+        )
+
+        revision = Asset(
+            project_id=project.id,
+            asset_type="logo",
+            url=url,
+            prompt=(
+                instruction
+                or "Controlled logo refinement"
+            ),
+            specification=json.dumps(
+                specification,
+                ensure_ascii=False,
+            ),
+            is_selected=False,
+        )
+
+        db.add(revision)
+        db.commit()
+        db.refresh(revision)
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        db.rollback()
+
+        try:
+            if "output_path" in locals():
+                output_path.unlink(
+                    missing_ok=True
+                )
+        except Exception:
+            pass
+
+        print(
+            "[LOGO REFINEMENT] Error:",
+            repr(error),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not create logo refinement.",
+        ) from error
+
+    return {
+        "message": "Logo refinement created.",
+        "source_logo_id": str(source.id),
+        "revision_number": (
+            specification["refinement"][
+                "revision_number"
+            ]
+        ),
+        "logo": asset_to_dict(revision),
+    }
+
+
 @app.post("/projects/{project_id}" "/logos/{asset_id}/select")
 def select_logo(
     project_id: UUID,
@@ -1157,82 +1502,18 @@ def select_logo(
 
             personality = []
 
-        # =================================================
-        # GENERATE VIDEO
-        #
-        # VIDEO_PROVIDER=auto:
-        #
-        # cloud API
-        # cloud API
-        #    -> failure
-        # local MoviePy V2
-        # MoviePy V2
-        # =================================================
-
-        print("[VIDEO] Generating " "promotional video...")
-
-        video_path = generate_video(
-            provider=None,
-            logo_path=(logo_path),
-            output_directory=(GENERATED_DIR),
-            business_name=(project.business_name),
-            slogan=(brand_kit.slogan or ""),
-            personality=(personality),
-            marketing_message=(brand_kit.marketing_message or ""),
-            primary_color=(brand_kit.primary_color),
-            secondary_color=(brand_kit.secondary_color),
-            accent_color=(brand_kit.accent_color),
-        )
-
-        if not video_path:
-
-            raise RuntimeError("Video provider did not " "return a file.")
-
-        video_path = Path(video_path)
-
-        if not video_path.exists():
-
-            raise RuntimeError("Generated video file " "does not exist.")
-
-        if video_path.stat().st_size < 1000:
-
-            raise RuntimeError("Generated video file " "is invalid.")
-
-        # =================================================
-        # VIDEO ASSET
-        # =================================================
-
-        video_url = "http://127.0.0.1:8000" f"/generated/" f"{video_path.name}"
-
-        video = Asset(
-            project_id=(project.id),
-            asset_type=("video"),
-            url=(video_url),
-            prompt=(
-                "Promotional video generated "
-                "from selected logo and "
-                "brand intelligence"
-            ),
-            is_selected=False,
-        )
-
-        db.add(video)
-
+        # Logo approval is intentionally fast. Campaign/video generation
+        # belongs to the dedicated advertising workflow and must not block
+        # selection or refinement approval.
         db.commit()
-
         db.refresh(logo)
-
         db.refresh(brand_kit)
 
-        db.refresh(video)
-
-        print("[VIDEO] Promotional video complete.")
-
         return {
-            "message": ("Brand identity " "finalized"),
+            "message": "Brand identity finalized.",
             "logo": asset_to_dict(logo),
             "brand_kit": brand_kit_to_dict(brand_kit),
-            "video": asset_to_dict(video),
+            "video": None,
         }
 
     except Exception as error:
