@@ -320,6 +320,8 @@ def choose_design_language(
 
     return {
         "industry_family": dna["family"],
+        "industry_label": dna["industry_label"],
+        "logo_elements": dna["logo_elements"],
         "meaning": primary_meaning,
         "form": form,
         "negative_space": negative_space,

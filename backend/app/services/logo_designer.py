@@ -7,6 +7,7 @@ import uuid
 import requests
 from app.services.logo_identity_engine import generate_identity_briefs
 from app.services.logo_industry_design import choose_design_language
+from app.services.logo_industry_resolver import resolve_industry
 
 
 
@@ -983,7 +984,7 @@ stroke_width must be 8 through 35.
     ]
 
     v5_language = choose_design_language(
-        family=v5_family,
+        family=industry,
         business_name=business_name,
         description=description,
         strategy=v5_brief["strategy"],
@@ -1011,13 +1012,30 @@ stroke_width must be 8 through 35.
         v5_brief["geometry_character"]
     )
 
-    sanitized["industry_form"] = v5_language["form"]
+    sanitized["industry_family"] = (
+        v5_language["industry_family"]
+    )
+
+    sanitized["industry_label"] = (
+        v5_language["industry_label"]
+    )
+
+    sanitized["logo_elements"] = list(
+        v5_language["logo_elements"]
+    )
+
+    sanitized["industry_form"] = (
+        v5_language["form"]
+    )
+
     sanitized["negative_space_idea"] = (
         v5_language["negative_space"]
     )
+
     sanitized["motion_language"] = (
         v5_language["motion"]
     )
+
     sanitized["geometry_language"] = (
         v5_language["geometry"]
     )
@@ -1511,47 +1529,62 @@ V4_TYPOGRAPHY = {
 
 
 def infer_industry_semantics(industry="", description=""):
-    """Return deterministic semantic guidance for any supplied business."""
+    """
+    Return deterministic semantic guidance for the business.
+
+    Exact user-facing industry selections are resolved through the
+    shared industry resolver. Existing semantic profiles continue
+    supplying motifs, construction and typography guidance.
+    """
     raw_industry = str(industry or "").strip()
     raw_description = str(description or "").strip()
 
     industry_text = raw_industry.lower()
     description_text = raw_description.lower()
-    haystack = f"{industry_text} {description_text}".strip()
 
-    best_family = "other"
-    best_score = 0
+    resolved = resolve_industry(raw_industry)
 
-    for family, profile in INDUSTRY_SEMANTIC_PROFILES.items():
-        score = 0
+    # Exact selections from the Create page are authoritative.
+    if resolved["matched"]:
+        best_family = resolved["family"]
 
-        for keyword in profile["keywords"]:
-            keyword = keyword.lower()
+    # Preserve the previous keyword classifier for free-form,
+    # legacy or otherwise unrecognized industry values.
+    else:
+        best_family = "other"
+        best_score = 0
 
-            # Explicit industry labels are authoritative. A business entered
-            # as Music must not become Technology merely because its
-            # description contains generic words such as "platform".
-            if keyword == industry_text:
-                score += 100
+        for family, profile in INDUSTRY_SEMANTIC_PROFILES.items():
+            score = 0
 
-            elif keyword in industry_text:
-                score += 40
+            for keyword in profile["keywords"]:
+                keyword = keyword.lower()
 
-            elif keyword in description_text:
-                score += 3
+                if keyword == industry_text:
+                    score += 100
+                elif keyword in industry_text:
+                    score += 40
+                elif keyword in description_text:
+                    score += 3
 
-        if score > best_score:
-            best_family = family
-            best_score = score
+            if score > best_score:
+                best_family = family
+                best_score = score
 
-    if best_family == "other":
+    profile = INDUSTRY_SEMANTIC_PROFILES.get(best_family)
+
+    # Some resolver families may not have a legacy semantic profile.
+    # Keep the resolved industry data and use safe general guidance.
+    if profile is None:
         return {
-            "industry_family": "other",
+            "industry_family": resolved["family"],
+            "industry_label": resolved["label"],
             "industry_subtype": (
                 industry_text
                 if industry_text
                 else "general"
             ),
+            "logo_elements": resolved["elements"],
             "semantic_motifs": (
                 "clarity",
                 "progress",
@@ -1576,15 +1609,29 @@ def infer_industry_semantics(industry="", description=""):
             ),
         }
 
-    profile = INDUSTRY_SEMANTIC_PROFILES[best_family]
+    if resolved["matched"]:
+        industry_label = resolved["label"]
+        logo_elements = resolved["elements"]
+    else:
+        family_resolution = resolve_industry(best_family)
+
+        industry_label = (
+            raw_industry
+            if raw_industry
+            else family_resolution["label"]
+        )
+
+        logo_elements = family_resolution["elements"]
 
     return {
         "industry_family": best_family,
+        "industry_label": industry_label,
         "industry_subtype": (
             industry_text
             if industry_text
             else best_family
         ),
+        "logo_elements": logo_elements,
         "semantic_motifs": profile["motifs"],
         "constructions": profile["constructions"],
         "typography": profile["typography"],
@@ -2295,6 +2342,20 @@ def sanitize_specification(
 
         "industry_family":
             industry_family,
+
+        "industry_label":
+            semantic_profile.get(
+                "industry_label",
+                industry,
+            ),
+
+        "logo_elements":
+            list(
+                semantic_profile.get(
+                    "logo_elements",
+                    (),
+                )
+            ),
 
         "industry_subtype":
             industry_subtype,
