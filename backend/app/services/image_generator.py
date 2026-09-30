@@ -19,6 +19,7 @@ def generate_logo_image(
     custom_colors: list[str] | None = None,
     creative_prompt: str = "",
     use_ai_specification: bool = True,
+    art_direction: dict | None = None,
 ) -> dict:
     """
     Generate one complete logo concept.
@@ -136,6 +137,115 @@ def generate_logo_image(
             "Logo designer did not return "
             "a valid specification."
         )
+
+    if isinstance(art_direction, dict):
+        allowed_strategies = {
+            "bespoke-monogram",
+            "negative-space-glyph",
+            "abstract-semantic",
+            "continuous-line",
+            "modular-geometry",
+            "signature-emblem",
+            "motion-ribbon",
+            "typography-led",
+            "experimental-fusion",
+        }
+        allowed_typography = {
+            "modern",
+            "geometric",
+            "elegant",
+            "classic",
+            "bold",
+        }
+        allowed_presentations = {
+            "stacked",
+            "horizontal",
+            "emblem",
+            "typography-led",
+        }
+
+        strategy = str(
+            art_direction.get("strategy", "")
+        ).strip()
+        if strategy in allowed_strategies:
+            specification["identity_strategy"] = strategy
+
+        semantic_territory = str(
+            art_direction.get(
+                "semantic_territory",
+                "",
+            )
+        ).strip()
+        if semantic_territory:
+            specification[
+                "semantic_territory"
+            ] = semantic_territory
+
+        industry_form = str(
+            art_direction.get(
+                "industry_form",
+                "",
+            )
+        ).strip()
+        if industry_form:
+            specification[
+                "industry_form"
+            ] = industry_form
+
+        negative_space = str(
+            art_direction.get(
+                "negative_space_idea",
+                "",
+            )
+        ).strip()
+        if negative_space:
+            specification[
+                "negative_space_idea"
+            ] = negative_space
+
+        typography = str(
+            art_direction.get(
+                "typography_personality",
+                "",
+            )
+        ).strip().lower()
+        if typography in allowed_typography:
+            specification[
+                "typography_personality"
+            ] = typography
+            specification["font_style"] = typography
+
+        presentation = str(
+            art_direction.get(
+                "presentation_layout",
+                "",
+            )
+        ).strip().lower()
+        if presentation in allowed_presentations:
+            specification[
+                "presentation_layout"
+            ] = presentation
+            specification["layout"] = (
+                "symbol-left"
+                if presentation == "horizontal"
+                else "symbol-top"
+            )
+
+        specification["sonnet_art_direction"] = {
+            "model": "kr/claude-sonnet-4.5",
+            "visual_idea": str(
+                art_direction.get(
+                    "visual_idea",
+                    "",
+                )
+            ).strip(),
+            "composition_note": str(
+                art_direction.get(
+                    "composition_note",
+                    "",
+                )
+            ).strip(),
+        }
 
     print("")
     print(

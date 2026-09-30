@@ -85,6 +85,10 @@ from .services.logo_raster_quality import (
     analyze_logo_png,
 )
 
+from .services.logo_art_director import (
+    generate_art_directions,
+)
+
 from .services.video_provider import (
     generate_video,
 )
@@ -423,6 +427,15 @@ def create_logo_concepts(
     }
     pool_size = pool_sizes.get(count, count)
 
+    art_directions = generate_art_directions(
+        business_name=business_name,
+        industry=industry,
+        description=description,
+        style=effective_style,
+        count=pool_size,
+        creative_prompt=creative_prompt,
+    )
+
     print("")
     print("========================================")
     print("[LOGO] STARTING QUALITY-GATED BATCH")
@@ -476,6 +489,9 @@ def create_logo_concepts(
                 custom_colors=custom_colors,
                 creative_prompt=creative_prompt,
                 use_ai_specification=False,
+                art_direction=art_directions[
+                    pool_index % len(art_directions)
+                ],
             )
 
             if not isinstance(generation_result, dict):
