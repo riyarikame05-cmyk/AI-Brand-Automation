@@ -9,6 +9,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
+from .brand_kit_v2 import (
+    build_brand_kit_assets,
+    derive_extended_palette,
+)
+
 
 def safe_filename(value: str) -> str:
     value = value.strip()
@@ -497,7 +502,10 @@ def create_brand_package(
     output_directory: Path,
 ) -> Path:
     """
-    Generate logo + video + PDF + JSON inside a ZIP.
+    Build Brand Kit V2.
+
+    The package preserves the exact selected identity and creates only
+    deterministic production variants. It never invents a different symbol.
     """
 
     safe_name = safe_filename(
@@ -509,53 +517,44 @@ def create_brand_package(
         / f"package-{project.id}"
     )
 
-    # Remove old temporary package folder.
     if work_directory.exists():
-
-        shutil.rmtree(
-            work_directory
-        )
+        shutil.rmtree(work_directory)
 
     work_directory.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    # =====================================================
-    # COPY LOGO
-    # =====================================================
-
-    logo_output = (
+    logos_directory = (
         work_directory
-        / "brand-logo.png"
+        / "logos"
     )
 
-    shutil.copy2(
-        logo_path,
-        logo_output,
+    logo_assets = build_brand_kit_assets(
+        logo_path=logo_path,
+        output_directory=logos_directory,
     )
-
-    # =====================================================
-    # COPY VIDEO
-    # =====================================================
 
     if (
         video_path
         and video_path.exists()
     ):
+        media_directory = (
+            work_directory
+            / "media"
+        )
+        media_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         shutil.copy2(
             video_path,
-            work_directory
+            media_directory
             / "promotional-video.mp4",
         )
 
-    # =====================================================
-    # JSON DATA
-    # =====================================================
-
     try:
-
         personality = (
             json.loads(
                 brand_kit.personality
@@ -563,59 +562,82 @@ def create_brand_package(
             if brand_kit.personality
             else []
         )
-
     except Exception:
-
         personality = (
             brand_kit.personality
             or ""
         )
 
+    palette = derive_extended_palette(
+        brand_kit.primary_color,
+        brand_kit.secondary_color,
+        brand_kit.accent_color,
+    )
+
     brand_data = {
-        "business_name":
-        project.business_name,
-
-        "description":
-        project.description,
-
-        "industry":
-        project.industry,
-
-        "style":
-        project.style,
-
-        "slogan":
-        brand_kit.slogan,
-
-        "personality":
-        personality,
-
-        "target_audience":
-        brand_kit.target_audience,
-
-        "tone":
-        brand_kit.tone,
-
-        "marketing_message":
-        brand_kit.marketing_message,
-
+        "version": 2,
+        "business_name": project.business_name,
+        "description": project.description,
+        "industry": project.industry,
+        "style": project.style,
+        "slogan": brand_kit.slogan,
+        "personality": personality,
+        "target_audience": brand_kit.target_audience,
+        "tone": brand_kit.tone,
+        "marketing_message": brand_kit.marketing_message,
         "typography": {
-            "heading":
-            brand_kit.heading_font,
-
-            "body":
-            brand_kit.body_font,
+            "heading": (
+                brand_kit.heading_font
+                or "Montserrat"
+            ),
+            "body": (
+                brand_kit.body_font
+                or "Inter"
+            ),
         },
-
-        "colors": {
-            "primary":
-            brand_kit.primary_color,
-
-            "secondary":
-            brand_kit.secondary_color,
-
-            "accent":
-            brand_kit.accent_color,
+        "colors": palette,
+        "logo_system": {
+            "primary": "logos/primary.png",
+            "primary_transparent": (
+                "logos/primary-transparent.png"
+            ),
+            "black": "logos/black.png",
+            "white": "logos/white.png",
+            "on_light": "logos/on-light.png",
+            "on_dark": "logos/on-dark.png",
+            "icon": None,
+            "secondary_horizontal": None,
+        },
+        "usage": {
+            "clear_space": (
+                "Keep clear space around the identity "
+                "equal to at least the cap height of the wordmark."
+            ),
+            "minimum_size": {
+                "digital_width_px": 160,
+                "print_width_mm": 35,
+            },
+            "backgrounds": (
+                "Use the primary or black identity on light "
+                "backgrounds and the white identity on dark "
+                "backgrounds."
+            ),
+            "do_not": [
+                "Do not distort or stretch the identity.",
+                "Do not change colors outside the approved palette.",
+                "Do not add shadows, outlines, or unapproved effects.",
+                "Do not rearrange the symbol and wordmark.",
+            ],
+        },
+        "availability": {
+            "icon": (
+                "Requires an approved separately addressable "
+                "symbol master."
+            ),
+            "secondary_horizontal": (
+                "Requires an approved alternate lockup or "
+                "master-symbol composition."
+            ),
         },
     }
 
@@ -627,15 +649,11 @@ def create_brand_package(
     json_path.write_text(
         json.dumps(
             brand_data,
-            indent=4,
+            indent=2,
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
-
-    # =====================================================
-    # PDF GUIDE
-    # =====================================================
 
     pdf_path = (
         work_directory
@@ -644,21 +662,14 @@ def create_brand_package(
 
     create_brand_guide_pdf(
         output_path=pdf_path,
-        logo_path=logo_path,
+        logo_path=logo_assets["primary"],
         project=project,
         brand_kit=brand_kit,
     )
 
-    # =====================================================
-    # ZIP
-    # =====================================================
-
     zip_path = (
         output_directory
-        / (
-            f"{safe_name}-"
-            f"Brand-Package.zip"
-        )
+        / f"{safe_name}-Brand-Package.zip"
     )
 
     if zip_path.exists():
@@ -669,19 +680,19 @@ def create_brand_package(
         "w",
         zipfile.ZIP_DEFLATED,
     ) as zip_file:
-
-        for file_path in (
-            work_directory.iterdir()
+        for file_path in sorted(
+            work_directory.rglob("*")
         ):
+            if not file_path.is_file():
+                continue
 
             zip_file.write(
                 file_path,
-                arcname=file_path.name,
+                arcname=file_path.relative_to(
+                    work_directory
+                ).as_posix(),
             )
 
-    # Cleanup temporary directory.
-    shutil.rmtree(
-        work_directory
-    )
+    shutil.rmtree(work_directory)
 
     return zip_path
