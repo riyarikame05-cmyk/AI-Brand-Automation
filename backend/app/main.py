@@ -60,6 +60,11 @@ from .services.brand_package import (
     create_brand_package,
 )
 
+from .services.brand_memory import (
+    get_brand_memory as load_brand_memory,
+    sync_brand_memory,
+)
+
 from .services.color_extractor import (
     extract_dominant_colors,
 )
@@ -1906,6 +1911,82 @@ def get_assets(
         result.append(data)
 
     return {"assets": result}
+
+
+# =========================================================
+# BRAND MEMORY
+# =========================================================
+
+
+@app.get("/projects/{project_id}/brand-memory")
+def read_brand_memory(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found.",
+        )
+
+    memory = load_brand_memory(
+        db=db,
+        project_id=project.id,
+    )
+
+    return {
+        "brand_memory": memory,
+    }
+
+
+@app.post("/projects/{project_id}/brand-memory/sync")
+def synchronize_brand_memory(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found.",
+        )
+
+    brand_kit = (
+        db.query(BrandKit)
+        .filter(BrandKit.project_id == project.id)
+        .first()
+    )
+
+    if not brand_kit:
+        raise HTTPException(
+            status_code=400,
+            detail="Brand kit has not been generated.",
+        )
+
+    try:
+        asset, memory = sync_brand_memory(
+            db=db,
+            project=project,
+            brand_kit=brand_kit,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+    except Exception:
+        db.rollback()
+        raise
+
+    return {
+        "message": "Brand Memory synchronized.",
+        "asset_id": str(asset.id),
+        "brand_memory": memory,
+    }
 
 
 # =========================================================
