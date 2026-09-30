@@ -956,7 +956,7 @@ export default function ProjectPage() {
 
               {selectedLogo && (
                 <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                  Ã¢Å“â€œ Identity selected
+                  ✓ Identity selected
                 </span>
               )}
             </div>
@@ -975,7 +975,7 @@ export default function ProjectPage() {
               href={`/projects/${projectId}/tools`}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-700 hover:shadow-md"
             >
-              <span>Ã¢Å“Â¦</span>
+              <span>✦</span>
               Creative Tools
               <span>&rarr;</span>
             </Link>
@@ -1023,7 +1023,7 @@ export default function ProjectPage() {
                 role="status"
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm text-emerald-700"
               >
-                Ã¢Å“â€œ {successMessage}
+                ✓ {successMessage}
               </div>
             )}
           </section>
@@ -1128,7 +1128,7 @@ export default function ProjectPage() {
 
                         {selected && (
                           <span className="absolute right-4 top-4 z-10 rounded-full bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white">
-                            Ã¢Å“â€œ Selected
+                            ✓ Selected
                           </span>
                         )}
 
@@ -1251,7 +1251,7 @@ export default function ProjectPage() {
                           {selecting
                             ? "Building identity..."
                             : selected
-                              ? "Ã¢Å“â€œ Selected direction"
+                              ? "✓ Selected direction"
                               : "Choose this direction"}
                         </button>
                       </div>
@@ -1263,7 +1263,7 @@ export default function ProjectPage() {
           ) : (
             <div className="mt-7 rounded-[22px] border border-dashed border-violet-200 bg-white/70 px-6 py-16 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-lg text-violet-600">
-                Ã¢â€”â€¡
+                ◇
               </div>
 
               <h3 className="mt-5 text-base font-semibold text-zinc-900">
@@ -1763,7 +1763,7 @@ export default function ProjectPage() {
 
                     {brandKit.slogan && (
                       <h3 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] sm:text-4xl">
-                        Ã¢â‚¬Å“{brandKit.slogan}Ã¢â‚¬Â
+                        “{brandKit.slogan}”
                       </h3>
                     )}
 
@@ -1836,7 +1836,7 @@ export default function ProjectPage() {
                       </p>
 
                       <p className="mt-0.5 text-xs text-zinc-400">
-                        MP4 Ã‚Â· Generated from selected identity
+                        MP4 · Generated from selected identity
                       </p>
                     </div>
 
@@ -1857,7 +1857,7 @@ export default function ProjectPage() {
                 <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
                   <div>
                     <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
-                      Ã¢â€“Â¶
+                      ▶
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-zinc-800">
@@ -1925,7 +1925,7 @@ export default function ProjectPage() {
             title="Brand identity"
             value={
               selectedLogo
-                ? "Selected Ã¢Å“â€œ"
+                ? "Selected ✓"
                 : "Awaiting selection"
             }
           />
@@ -1982,7 +1982,7 @@ function StudioCard({
 
         {badge && (
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-            Ã¢Å“â€œ {badge}
+            ✓ {badge}
           </span>
         )}
       </div>
@@ -2063,7 +2063,7 @@ function ColorCard({
       </div>
 
       <span className="ml-auto text-[11px] font-medium text-zinc-400 transition group-hover:text-violet-600">
-        {copied ? "Copied Ã¢Å“â€œ" : "Copy"}
+        {copied ? "Copied ✓" : "Copy"}
       </span>
     </button>
   );
