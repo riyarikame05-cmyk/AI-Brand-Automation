@@ -1231,7 +1231,7 @@ def create_outro_scene(
 
     draw_centered(
         draw,
-        "BUILT FOR WHAT COMES NEXT.",
+        "CRAFTED WITH PURPOSE.",
         795,
         tagline_font,
         (
@@ -1243,7 +1243,7 @@ def create_outro_scene(
 
     draw_centered(
         draw,
-        "YOUR BRAND. YOUR IDENTITY.",
+        "A DISTINCTIVE EXPERIENCE.",
         885,
         small_font,
         accent,
@@ -1275,6 +1275,74 @@ def ease_in_out(
             - 2 * value
         )
     )
+
+
+
+def premium_motion_overlay(frame, t, duration):
+    import math
+
+    image = frame.convert("RGBA")
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+
+    progress = min(1.0, max(0.0, t / max(duration, 0.01)))
+
+    # Animated copper sweep
+    sweep_x = int(-250 + progress * 1550)
+
+    for i in range(12):
+        x = sweep_x + i * 7
+        draw.line(
+            [(x, 0), (x - 340, HEIGHT)],
+            fill=(200, 121, 65, 4),
+            width=3,
+        )
+
+    # Floating particles
+    for i in range(20):
+        phase = i * 2.4
+
+        x = (
+            WIDTH * 0.5
+            + math.sin(phase) * WIDTH * 0.44
+            + math.sin(t + i) * 18
+        )
+
+        y = (i * 173 - t * 30) % HEIGHT
+        radius = 2 + i % 3
+
+        draw.ellipse(
+            (x-radius, y-radius, x+radius, y+radius),
+            fill=(232, 169, 104, 42),
+        )
+
+    # Animated steam
+    for ribbon in range(3):
+        points = []
+
+        for step in range(40):
+            p = step / 39
+
+            x = (
+                WIDTH * (0.17 + ribbon * 0.32)
+                + math.sin(p * 8 + t * 1.7 + ribbon)
+                * (16 + p * 25)
+            )
+
+            y = HEIGHT * 0.92 - p * HEIGHT * 0.68
+
+            points.append((int(x), int(y)))
+
+        draw.line(
+            points,
+            fill=(225, 161, 105, 36),
+            width=3,
+        )
+
+    return Image.alpha_composite(
+        image,
+        layer,
+    ).convert("RGB")
 
 
 def animated_image_clip(
@@ -1394,6 +1462,12 @@ def animated_image_clip(
             )
         )
 
+        frame = premium_motion_overlay(
+            frame,
+            t,
+            duration,
+        )
+
         frame_array = np.array(
             frame,
             dtype=np.float32,
@@ -1432,6 +1506,23 @@ def animated_image_clip(
                         / fade_duration,
                     ),
                 )
+
+        # Animated warm cinematic lighting.
+        yy, xx = np.ogrid[:HEIGHT, :WIDTH]
+
+        light_x = WIDTH * (0.22 + 0.56 * progress)
+        light_y = HEIGHT * (0.18 + 0.22 * progress)
+
+        distance = (
+            ((xx - light_x) / (WIDTH * 0.58)) ** 2
+            + ((yy - light_y) / (HEIGHT * 0.62)) ** 2
+        )
+
+        glow = np.exp(-distance * 3.0).astype(np.float32)
+
+        frame_array[:, :, 0] += glow * 11.0
+        frame_array[:, :, 1] += glow * 5.5
+        frame_array[:, :, 2] += glow * 1.5
 
         if opacity < 1.0:
             frame_array *= opacity

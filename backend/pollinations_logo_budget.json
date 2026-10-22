@@ -1,0 +1,11 @@
+﻿{
+    "provider":  "pollinations",
+    "model":  "openai/gpt-image-1-mini",
+    "max_total_pollen":  0.2,
+    "max_generation_requests":  2,
+    "automatic_retries":  false,
+    "fallback_models":  [
+
+                        ],
+    "generation_enabled":  true
+}

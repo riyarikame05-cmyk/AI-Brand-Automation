@@ -152,6 +152,94 @@ class Asset(Base):
 
 
 # =========================================================
+# LOGO GENERATION JOB
+# =========================================================
+
+class LogoGenerationJob(Base):
+    """
+    Persistent orchestration state for slow/free logo generation.
+
+    Completed logo artwork remains stored as Asset rows.
+    This table stores only generation workflow state.
+    """
+    __tablename__ = "logo_generation_jobs"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "projects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    status = Column(
+        String,
+        nullable=False,
+        default="queued",
+        server_default="queued",
+        index=True,
+    )
+
+    requested_count = Column(
+        String,
+        nullable=False,
+        default="3",
+        server_default="3",
+    )
+
+    settings_json = Column(
+        Text,
+        nullable=True,
+    )
+
+    state_json = Column(
+        Text,
+        nullable=True,
+    )
+
+    active_horde_job_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    progress_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    error_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project = relationship(
+        "Project",
+    )
+
+
+# =========================================================
 # BRAND KIT
 # =========================================================
 

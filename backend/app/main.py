@@ -1,5 +1,6 @@
 import json
 import uuid
+import threading
 from uuid import UUID
 from pathlib import Path
 
@@ -41,10 +42,11 @@ from fastapi.staticfiles import (
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from .database import get_db
+from .database import get_db, SessionLocal
 from .models import (
     Asset,
     BrandKit,
+    LogoGenerationJob,
     Project,
 )
 
@@ -88,10 +90,6 @@ from .services.logo_quality import (
 
 from .services.logo_raster_quality import (
     analyze_logo_png,
-)
-
-from .services.logo_art_director import (
-    generate_art_directions,
 )
 
 from .services.video_provider import (
@@ -386,6 +384,9 @@ def clean_extracted_palette(
     return cleaned
 
 
+from app.services.logo_ai_engine import create_semantic_portfolio_with_gemini
+
+
 def create_logo_concepts(
     project: Project,
     db: Session,
@@ -394,6 +395,7 @@ def create_logo_concepts(
     palette_name: str = "",
     custom_colors: list[str] | None = None,
     creative_prompt: str = "",
+    horde_execution_context: dict | None = None,
 ):
     """
     Generate a bounded internal candidate pool, measure rendered output,
@@ -425,20 +427,30 @@ def create_logo_concepts(
     industry = project.industry
     description = project.description
 
-    pool_sizes = {
-        3: 6,
-        6: 10,
-        9: 14,
-    }
-    pool_size = pool_sizes.get(count, count)
+    # Start with only the requested number of semantic territories.
+    # Rejected actual pixels trigger bounded replacement territories.
+    initial_pool_size = count
+    max_concept_budget = max(count, count * 2)
 
-    art_directions = generate_art_directions(
+    semantic_portfolio = create_semantic_portfolio_with_gemini(
         business_name=business_name,
         industry=industry,
         description=description,
         style=effective_style,
-        count=pool_size,
         creative_prompt=creative_prompt,
+        count=initial_pool_size,
+    )
+
+    rejection_history = []
+    accepted_visual_history = []
+    pool_size = initial_pool_size
+
+    print(
+        "[LOGO] Gemini semantic portfolio:",
+        [
+            territory.get("territory_name", "")
+            for territory in semantic_portfolio
+        ],
     )
 
     print("")
@@ -448,7 +460,14 @@ def create_logo_concepts(
     print(f"[LOGO] Business: {business_name}")
     print(f"[LOGO] Existing concepts: {existing_logo_count}")
     print(f"[LOGO] Winners requested: {count}")
-    print(f"[LOGO] Internal candidate pool: {pool_size}")
+    print(
+        "[LOGO] Initial candidate pool: "
+        f"{initial_pool_size}"
+    )
+    print(
+        "[LOGO] Maximum adaptive concept budget: "
+        f"{max_concept_budget}"
+    )
     print(f"[LOGO] Logo style: {effective_style}")
     print(f"[LOGO] Palette: {palette_name}")
     print(
@@ -464,7 +483,12 @@ def create_logo_concepts(
     candidates = []
 
     try:
-        for pool_index in range(pool_size):
+        pool_index = 0
+
+        while (
+            pool_index < len(semantic_portfolio)
+            and pool_index < max_concept_budget
+        ):
             absolute_index = (
                 existing_logo_count
                 + pool_index
@@ -475,7 +499,7 @@ def create_logo_concepts(
             print("----------------------------------------")
             print(
                 "[LOGO] Building internal candidate "
-                f"{pool_index + 1}/{pool_size}"
+                f"{pool_index + 1}/{max_concept_budget}"
             )
             print(
                 "[LOGO] Creative direction: "
@@ -489,14 +513,20 @@ def create_logo_concepts(
                 style=effective_style,
                 description=description,
                 direction_index=direction_index,
-                provider="auto",
+                provider="gemini_flux",
                 palette_name=palette_name,
                 custom_colors=custom_colors,
                 creative_prompt=creative_prompt,
                 use_ai_specification=False,
-                art_direction=art_directions[
-                    pool_index % len(art_directions)
+                semantic_territory=semantic_portfolio[
+                    pool_index
                 ],
+                accepted_visual_history=(
+                    accepted_visual_history
+                ),
+                horde_execution_context=(
+                    horde_execution_context
+                ),
             )
 
             if not isinstance(generation_result, dict):
@@ -510,6 +540,23 @@ def create_logo_concepts(
             specification = generation_result.get(
                 "specification"
             )
+
+            vision_passed = bool(
+                generation_result.get(
+                    "vision_passed",
+                    False,
+                )
+            )
+
+            try:
+                vision_score = float(
+                    generation_result.get(
+                        "vision_score",
+                        0.0,
+                    )
+                )
+            except (TypeError, ValueError):
+                vision_score = 0.0
 
             if not isinstance(specification, dict):
                 raise RuntimeError(
@@ -554,13 +601,9 @@ def create_logo_concepts(
                 )
             ).strip().lower()
 
-            initial_integration = (
-                0.78
-                if initial_role
-                and initial_role
-                not in {"none", "avoid", "unused"}
-                else 0.58
-            )
+            # Initials are not a quality criterion. The AI symbol path
+            # intentionally avoids letters unless the user explicitly asks.
+            initial_integration = 0.70
 
             element_count = int(
                 specification.get(
@@ -630,18 +673,6 @@ def create_logo_concepts(
                 )
             )
 
-            strategy_codes = {
-                "bespoke-monogram": 0.10,
-                "negative-space-glyph": 0.22,
-                "abstract-semantic": 0.34,
-                "continuous-line": 0.46,
-                "modular-geometry": 0.58,
-                "signature-emblem": 0.70,
-                "motion-ribbon": 0.82,
-                "typography-led": 0.91,
-                "experimental-fusion": 1.00,
-            }
-
             features = {
                 "occupancy": raster[
                     "bbox_occupancy"
@@ -657,10 +688,9 @@ def create_logo_concepts(
                 "initial_integration": (
                     initial_integration
                 ),
-                "angularity": strategy_codes.get(
-                    strategy,
-                    0.50,
-                ),
+                # Neutral legacy slot retained for compatibility with
+                # the existing diversity-distance feature vector.
+                "angularity": 0.50,
                 "openness": raster[
                     "aspect_balance"
                 ],
@@ -679,6 +709,14 @@ def create_logo_concepts(
                 "industry_form": industry_form,
             }
 
+            # Gemini Vision judges the actual generated pixels.
+            # A deterministic raster score must never override a
+            # semantic/creative Vision rejection.
+            specification["vision_gate"] = {
+                "passed": vision_passed,
+                "score": vision_score,
+            }
+
             candidates.append(
                 {
                     "image_bytes": image_bytes,
@@ -686,6 +724,8 @@ def create_logo_concepts(
                     "quality": quality,
                     "features": features,
                     "variant_key": variant_key,
+                    "vision_passed": vision_passed,
+                    "vision_score": vision_score,
                 }
             )
 
@@ -695,8 +735,207 @@ def create_logo_concepts(
                 f"accepted={quality['accepted']}"
             )
 
+            ai_concept = specification.get("ai_concept", {})
+            if not isinstance(ai_concept, dict):
+                ai_concept = {}
+
+            vision_review = ai_concept.get(
+                "vision_review",
+                {},
+            )
+            if not isinstance(vision_review, dict):
+                vision_review = {}
+
+            if vision_passed:
+                accepted_record = {
+                    "territory_name": str(
+                        semantic_portfolio[pool_index].get(
+                            "territory_name",
+                            "",
+                        )
+                    ).strip(),
+                    "concept_name": str(
+                        ai_concept.get(
+                            "concept_name",
+                            "",
+                        )
+                    ).strip(),
+                    "looks_like": str(
+                        vision_review.get(
+                            "looks_like",
+                            "",
+                        )
+                    ).strip(),
+                    "visual_metaphor": str(
+                        ai_concept.get(
+                            "visual_metaphor",
+                            "",
+                        )
+                    ).strip(),
+                    "physical_construction": str(
+                        ai_concept.get(
+                            "physical_construction",
+                            "",
+                        )
+                    ).strip(),
+                }
+
+                accepted_visual_history.append(
+                    accepted_record
+                )
+
+                print(
+                    "[LOGO] Reserved accepted visual topology:",
+                    accepted_record,
+                )
+
+            if not vision_passed:
+                ai_concept = specification.get("ai_concept", {})
+                if not isinstance(ai_concept, dict):
+                    ai_concept = {}
+
+                vision_review = ai_concept.get(
+                    "vision_review",
+                    {},
+                )
+                if not isinstance(vision_review, dict):
+                    vision_review = {}
+
+                rejection_record = {
+                    "territory_name": str(
+                        semantic_portfolio[pool_index].get(
+                            "territory_name",
+                            "",
+                        )
+                    ).strip(),
+                    "looks_like": str(
+                        vision_review.get(
+                            "looks_like",
+                            "",
+                        )
+                    ).strip(),
+                    "failed_visual_family": str(
+                        vision_review.get(
+                            "failed_visual_family",
+                            "",
+                        )
+                    ).strip(),
+                    "primary_failure": str(
+                        vision_review.get(
+                            "primary_failure",
+                            "",
+                        )
+                    ).strip(),
+                }
+
+                rejection_history.append(
+                    rejection_record
+                )
+
+                print(
+                    "[LOGO] Recorded batch rejection:",
+                    rejection_record,
+                )
+
+            pool_index += 1
+
+            passed_so_far = sum(
+                1
+                for candidate in candidates
+                if candidate.get("vision_passed") is True
+            )
+
+            if passed_so_far >= count:
+                print(
+                    "[LOGO] Required Vision PASS count reached; "
+                    "stopping adaptive generation."
+                )
+                break
+
+            remaining_queued = (
+                len(semantic_portfolio) - pool_index
+            )
+            passes_still_needed = count - passed_so_far
+
+            if (
+                remaining_queued < passes_still_needed
+                and len(semantic_portfolio)
+                < max_concept_budget
+            ):
+                replacements_allowed = (
+                    max_concept_budget
+                    - len(semantic_portfolio)
+                )
+                replacements_needed = min(
+                    passes_still_needed
+                    - remaining_queued,
+                    replacements_allowed,
+                )
+
+                if replacements_needed > 0:
+                    print(
+                        "[LOGO] Requesting adaptive replacement "
+                        f"territory count={replacements_needed}"
+                    )
+
+                    replacement_territories = (
+                        create_semantic_portfolio_with_gemini(
+                            business_name=business_name,
+                            industry=industry,
+                            description=description,
+                            style=effective_style,
+                            creative_prompt=creative_prompt,
+                            count=replacements_needed,
+                            existing_territories=(
+                                semantic_portfolio
+                            ),
+                            rejection_history=(
+                                rejection_history
+                            ),
+                        )
+                    )
+
+                    semantic_portfolio.extend(
+                        replacement_territories
+                    )
+                    pool_size = len(
+                        semantic_portfolio
+                    )
+
+                    print(
+                        "[LOGO] Adaptive territories added:",
+                        [
+                            territory.get(
+                                "territory_name",
+                                "",
+                            )
+                            for territory
+                            in replacement_territories
+                        ],
+                    )
+
+        vision_passed_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.get("vision_passed") is True
+        ]
+
+        vision_rejected_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.get("vision_passed") is not True
+        ]
+
+        print(
+            "[LOGO] Vision-qualified candidates: "
+            f"{len(vision_passed_candidates)}/{len(candidates)}"
+        )
+
+        # Only Vision-approved pixels participate in normal winner
+        # selection. Rejected artwork is reserved strictly for the
+        # final emergency fallback.
         selected = select_diverse_candidates(
-            candidates,
+            vision_passed_candidates,
             count=count,
             minimum_distance=0.055,
         )
@@ -714,7 +953,7 @@ def create_logo_concepts(
             remaining = sorted(
                 (
                     candidate
-                    for candidate in candidates
+                    for candidate in vision_passed_candidates
                     if id(candidate)
                     not in selected_ids
                 ),
@@ -745,9 +984,48 @@ def create_logo_concepts(
                     break
 
         if len(selected) < count:
+            print(
+                "[LOGO] WARNING: insufficient Vision PASS candidates. "
+                "Using highest Vision-scoring rejected candidates only "
+                "to keep generation non-fatal."
+            )
+
+            selected_ids = {
+                id(candidate)
+                for candidate in selected
+            }
+
+            emergency = sorted(
+                (
+                    candidate
+                    for candidate in vision_rejected_candidates
+                    if id(candidate) not in selected_ids
+                ),
+                key=lambda candidate: (
+                    -float(candidate.get("vision_score", 0.0)),
+                    -float(
+                        candidate.get(
+                            "quality",
+                            {},
+                        ).get("score", 0.0)
+                    ),
+                ),
+            )
+
+            for candidate in emergency:
+                candidate["specification"][
+                    "vision_gate"
+                ]["emergency_fallback"] = True
+
+                selected.append(candidate)
+
+                if len(selected) >= count:
+                    break
+
+        if len(selected) < count:
             raise RuntimeError(
-                "Logo quality gate could not produce "
-                f"{count} usable concepts."
+                "Logo generation produced fewer candidates "
+                "than requested."
             )
 
         concepts = []
@@ -1199,7 +1477,520 @@ def get_project(
 # =========================================================
 
 
-@app.post("/projects/{project_id}/generate-logo")
+def _logo_job_to_dict(job: LogoGenerationJob) -> dict:
+    try:
+        state = (
+            json.loads(job.state_json)
+            if job.state_json
+            else {}
+        )
+    except Exception:
+        state = {}
+
+    return {
+        "id": str(job.id),
+        "project_id": str(job.project_id),
+        "status": job.status,
+        "requested_count": int(job.requested_count or 3),
+        "progress_message": job.progress_message or "",
+        "error_message": job.error_message or "",
+        "state": state,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
+
+
+
+
+def _run_hybrid_logo_generation_job(job_id: UUID) -> None:
+    """
+    New hybrid jobs only.
+    Old Horde jobs never enter this worker.
+    """
+    from app.services.hybrid_logo_service import (
+        get_config,
+        prepare_hybrid_concepts,
+        generate_hybrid_batch,
+    )
+    from app.services.hybrid_asset_persistence import (
+        persist_hybrid_checkpoints,
+    )
+
+    db = SessionLocal()
+
+    try:
+        job = (
+            db.query(LogoGenerationJob)
+            .filter(LogoGenerationJob.id == job_id)
+            .first()
+        )
+
+        if job is None:
+            return
+
+        settings = json.loads(job.settings_json or "{}")
+
+        if settings.get("generation_mode") != "hybrid_v1":
+            raise RuntimeError("Not a hybrid generation job.")
+
+        if int(job.requested_count or 0) != 3:
+            raise RuntimeError("Hybrid mode requires exactly 3 logos.")
+
+        get_config()
+
+        project = (
+            db.query(Project)
+            .filter(Project.id == job.project_id)
+            .first()
+        )
+
+        if project is None:
+            raise RuntimeError("Project not found.")
+
+        job.status = "running"
+        job.progress_message = "Preparing hybrid logo concepts."
+        db.commit()
+
+        colors = list(settings.get("custom_colors") or [])
+
+        # Reuse the project's existing BrandKit palette when the
+        # generation request does not include custom colors.
+        if len(colors) < 2:
+            brand_kit = (
+                db.query(BrandKit)
+                .filter(BrandKit.project_id == project.id)
+                .first()
+            )
+
+            if brand_kit:
+                saved_colors = [
+                    brand_kit.primary_color,
+                    brand_kit.secondary_color,
+                ]
+
+                if all(saved_colors):
+                    colors = saved_colors
+
+        if len(colors) < 2:
+            raise RuntimeError(
+                "Hybrid generation requires two selected brand colors. "
+                "Choose two brand colors before generating logos."
+            )
+
+        business = {
+            "name": project.business_name,
+            "industry": project.industry,
+            "description": project.description,
+            "style": settings.get("logo_style") or project.style,
+            "creative_prompt": settings.get("creative_prompt") or "",
+            "colors": colors[:2],
+        }
+
+        # Save anything already completed.
+        persist_hybrid_checkpoints(
+            db, project, job.id, GENERATED_DIR
+        )
+
+        # A restarted job must NOT submit remote requests again.
+        state = json.loads(job.state_json or "{}")
+
+        if state.get("hybrid_started"):
+            raise RuntimeError(
+                "Hybrid job was previously started. "
+                "Existing checkpoints were recovered. "
+                "Automatic regeneration is blocked."
+            )
+
+        state["hybrid_started"] = True
+        job.state_json = json.dumps(state)
+        db.commit()
+
+        concepts = prepare_hybrid_concepts(business)
+
+        job.progress_message = (
+            "Generating three logos using Local AI and Hugging Face with local fallback."
+        )
+        db.commit()
+
+        generate_hybrid_batch(
+            business=business,
+            job_id=job.id,
+            concepts=concepts,
+        )
+
+        assets = persist_hybrid_checkpoints(
+            db, project, job.id, GENERATED_DIR
+        )
+
+        if len(assets) != 3:
+            raise RuntimeError(
+                f"Expected 3 hybrid logos, saved {len(assets)}."
+            )
+
+        job.status = "completed"
+        job.progress_message = (
+            f"{len(assets)} hybrid logos saved."
+        )
+        job.error_message = None
+        db.commit()
+
+    except Exception as error:
+        db.rollback()
+
+        try:
+            job = (
+                db.query(LogoGenerationJob)
+                .filter(LogoGenerationJob.id == job_id)
+                .first()
+            )
+
+            if job is not None:
+                project = (
+                    db.query(Project)
+                    .filter(Project.id == job.project_id)
+                    .first()
+                )
+
+                if project is not None:
+                    from app.services.hybrid_asset_persistence import (
+                        persist_hybrid_checkpoints,
+                    )
+
+                    persist_hybrid_checkpoints(
+                        db, project, job.id, GENERATED_DIR
+                    )
+
+                job.status = "failed"
+                job.error_message = str(error)[:2000]
+                job.progress_message = (
+                    "Hybrid generation stopped. "
+                    "Completed logos were preserved."
+                )
+                db.commit()
+
+        except Exception:
+            db.rollback()
+
+        print("[HYBRID JOB] Failed:", repr(error))
+
+    finally:
+        db.close()
+
+
+def _run_logo_generation_job(job_id: UUID) -> None:
+    """
+    Local background worker.
+
+    Uses its own SQLAlchemy session. The existing creative pipeline
+    remains unchanged; the HTTP request is no longer held open while
+    anonymous AI Horde waits in the volunteer queue.
+
+    No paid image fallback is introduced here.
+    """
+    db = SessionLocal()
+
+    try:
+        job = (
+            db.query(LogoGenerationJob)
+            .filter(LogoGenerationJob.id == job_id)
+            .first()
+        )
+
+        if job is None:
+            print(
+                "[LOGO JOB] Job disappeared before worker start:",
+                job_id,
+            )
+            return
+
+        project = (
+            db.query(Project)
+            .filter(Project.id == job.project_id)
+            .first()
+        )
+
+        if project is None:
+            job.status = "failed"
+            job.error_message = "Project not found."
+            job.progress_message = "Generation failed."
+            db.commit()
+            return
+
+        try:
+            settings = (
+                json.loads(job.settings_json)
+                if job.settings_json
+                else {}
+            )
+        except Exception:
+            settings = {}
+
+        # Preserve persistent Horde execution state when this worker
+        # is being recovered after a backend restart. In particular,
+        # never erase the attempt seed/identity associated with an
+        # already-submitted anonymous Horde UUID.
+        try:
+            worker_state = (
+                json.loads(job.state_json)
+                if job.state_json
+                else {}
+            )
+        except Exception:
+            worker_state = {}
+
+        if not isinstance(worker_state, dict):
+            worker_state = {}
+
+        has_active_horde_job = bool(
+            str(job.active_horde_job_id or "").strip()
+        )
+
+        job.status = "running"
+        job.error_message = None
+
+        if has_active_horde_job:
+            worker_state["phase"] = (
+                worker_state.get("phase") or "queued"
+            )
+            job.progress_message = (
+                "Resuming existing free anonymous AI Horde "
+                "generation after backend restart."
+            )
+        else:
+            worker_state["phase"] = "generating"
+            job.progress_message = (
+                "Gemini is preparing concepts and anonymous "
+                "AI Horde is generating artwork."
+            )
+
+        worker_state.setdefault("completed", 0)
+        worker_state["requested"] = int(
+            job.requested_count or 3
+        )
+        worker_state["free_image_provider"] = (
+            "ai_horde_anonymous"
+        )
+        worker_state["paid_fallback"] = False
+
+        job.state_json = json.dumps(worker_state)
+        db.commit()
+
+        print(
+            "[LOGO JOB] Started persistent background job:",
+            job.id,
+        )
+
+        concepts = create_logo_concepts(
+            project=project,
+            db=db,
+            count=int(job.requested_count or 3),
+            logo_style=str(
+                settings.get("logo_style") or ""
+            ),
+            palette_name=str(
+                settings.get("palette") or ""
+            ),
+            custom_colors=list(
+                settings.get("custom_colors") or []
+            ),
+            creative_prompt=str(
+                settings.get("creative_prompt") or ""
+            ),
+            horde_execution_context={
+                "db": db,
+                "job": job,
+            },
+        )
+
+        job.status = "completed"
+        job.progress_message = (
+            f"{len(concepts)} logo concepts generated."
+        )
+        job.error_message = None
+        job.state_json = json.dumps(
+            {
+                "phase": "completed",
+                "completed": len(concepts),
+                "requested": int(job.requested_count or 3),
+                "free_image_provider": "ai_horde_anonymous",
+                "paid_fallback": False,
+                "asset_ids": [
+                    str(concept["asset"].id)
+                    for concept in concepts
+                ],
+            }
+        )
+        db.commit()
+
+        print(
+            "[LOGO JOB] Completed:",
+            job.id,
+        )
+
+    except Exception as error:
+        db.rollback()
+
+        try:
+            job = (
+                db.query(LogoGenerationJob)
+                .filter(LogoGenerationJob.id == job_id)
+                .first()
+            )
+
+            if job is not None:
+                job.status = "failed"
+                job.progress_message = "Logo generation failed."
+                job.error_message = str(error)[:2000]
+                try:
+                    failed_state = (
+                        json.loads(job.state_json)
+                        if job.state_json
+                        else {}
+                    )
+                except Exception:
+                    failed_state = {}
+
+                if not isinstance(failed_state, dict):
+                    failed_state = {}
+
+                failed_state["phase"] = "failed"
+                failed_state["free_image_provider"] = (
+                    "ai_horde_anonymous"
+                )
+                failed_state["paid_fallback"] = False
+
+                job.state_json = json.dumps(failed_state)
+                db.commit()
+        except Exception:
+            db.rollback()
+
+        print(
+            "[LOGO JOB] Failed:",
+            job_id,
+            repr(error),
+        )
+
+    finally:
+        db.close()
+
+
+
+@app.on_event("startup")
+def recover_logo_generation_jobs() -> None:
+    """
+    Resume unfinished local logo orchestration after backend restart.
+
+    Recovery starts a local worker for each queued/running database job.
+    If that job has an active anonymous Horde UUID, the persistent Horde
+    layer checks/collects that exact remote job rather than submitting a
+    replacement solely because the backend restarted.
+    """
+    db = SessionLocal()
+
+    try:
+        jobs = (
+            db.query(LogoGenerationJob)
+            .filter(
+                LogoGenerationJob.status.in_(
+                    ["queued", "running"]
+                )
+            )
+            .all()
+        )
+
+        if not jobs:
+            print("[LOGO JOB] Startup recovery: no unfinished jobs.")
+            return
+
+        print(
+            "[LOGO JOB] Startup recovery found",
+            len(jobs),
+            "unfinished job(s).",
+        )
+
+        for job in jobs:
+            job_id = job.id
+
+            try:
+                recovered_settings = json.loads(
+                    job.settings_json or "{}"
+                )
+            except (TypeError, ValueError):
+                recovered_settings = {}
+
+            if recovered_settings.get("generation_mode") == "hybrid_v1":
+                print(
+                    "[HYBRID JOB] Startup recovery: "
+                    "remote resubmission blocked for",
+                    job_id,
+                )
+
+                # Preserve partial results and mark the interrupted job
+                # as failed. Do not restart any remote request.
+                try:
+                    from app.services.hybrid_asset_persistence import (
+                        persist_hybrid_checkpoints,
+                    )
+
+                    recovered_project = (
+                        db.query(Project)
+                        .filter(Project.id == job.project_id)
+                        .first()
+                    )
+
+                    if recovered_project is not None:
+                        persist_hybrid_checkpoints(
+                            db,
+                            recovered_project,
+                            job.id,
+                            GENERATED_DIR,
+                        )
+
+                    job.status = "failed"
+                    job.progress_message = (
+                        "Hybrid generation interrupted. "
+                        "Completed logos preserved."
+                    )
+                    job.error_message = (
+                        "Backend restarted; automatic remote "
+                        "generation is blocked."
+                    )
+                    db.commit()
+
+                except Exception as recovery_error:
+                    db.rollback()
+                    print(
+                        "[HYBRID JOB] Checkpoint recovery failed:",
+                        repr(recovery_error),
+                    )
+
+                continue
+
+            print(
+                "[LOGO JOB] Recovering:",
+                job_id,
+                "status=",
+                job.status,
+                "horde=",
+                job.active_horde_job_id,
+            )
+
+            thread = threading.Thread(
+                target=_run_logo_generation_job,
+                args=(job_id,),
+                daemon=True,
+                name=f"logo-job-recovery-{job_id}",
+            )
+            thread.start()
+
+    finally:
+        db.close()
+
+
+@app.post(
+    "/projects/{project_id}/generate-logo",
+    status_code=202,
+)
 def generate_more_logos(
     project_id: UUID,
     request: LogoGenerationRequest,
@@ -1211,91 +2002,191 @@ def generate_more_logos(
             detail="Logo count must be 3, 6, or 9.",
         )
 
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id)
+        .first()
+    )
 
     if not project:
-
         raise HTTPException(
             status_code=404,
-            detail=("Project not found."),
+            detail="Project not found.",
         )
 
-    try:
-
-        print("[LOGO] Starting logo batch " f"for project {project.id}")
-
-        # Persist the user's logo generation settings.
-        # Empty values from Explore More must not erase the
-        # original identity preferences.
-        if request.palette.strip():
-            project.generation_palette = (
-                request.palette.strip()
-            )
-
-        if request.custom_colors:
-            project.generation_custom_colors = json.dumps(
-                request.custom_colors
-            )
-        elif not project.generation_custom_colors:
-            project.generation_custom_colors = json.dumps([])
-
-        if request.logo_style.strip():
-            project.generation_logo_style = (
-                request.logo_style.strip()
-            )
-        elif not project.generation_logo_style:
-            project.generation_logo_style = project.style
-
-        if request.creative_prompt.strip():
-            project.generation_creative_prompt = (
-                request.creative_prompt.strip()
-            )
-
-        db.commit()
-        db.refresh(project)
-
-        concepts = create_logo_concepts(
-            project=(project),
-            db=(db),
-            count=request.count,
-            logo_style=(request.logo_style),
-            palette_name=(request.palette),
-            custom_colors=(request.custom_colors),
-            creative_prompt=(request.creative_prompt),
+    # Never submit another batch while this project already has
+    # active free generation work.
+    active_job = (
+        db.query(LogoGenerationJob)
+        .filter(
+            LogoGenerationJob.project_id == project.id,
+            LogoGenerationJob.status.in_(
+                ["queued", "running"]
+            ),
         )
+        .order_by(
+            LogoGenerationJob.created_at.desc()
+        )
+        .first()
+    )
 
-        db.commit()
-
-        for concept in concepts:
-
-            db.refresh(concept["asset"])
-
-        print("[LOGO] Batch complete.")
-
+    if active_job is not None:
+        print(
+            "[LOGO JOB] Returning existing active job:",
+            active_job.id,
+        )
         return {
-            "message": (f"{len(concepts)} logo concepts " "generated"),
-            "concepts": [
-                {
-                    **asset_to_dict(concept["asset"]),
-                    "palette": concept["palette"],
-                }
-                for concept in concepts
-            ],
+            "message": "Logo generation is already in progress.",
+            "job": _logo_job_to_dict(active_job),
         }
 
-    except Exception as error:
+    from app.services.hybrid_logo_service import CONFIG_PATH
 
-        db.rollback()
+    hybrid_config = json.loads(
+        CONFIG_PATH.read_text(encoding="utf-8-sig")
+    )
 
-        print(
-            "[LOGO] Generation error:",
-            repr(error),
-        )
+    hybrid_enabled = hybrid_config.get("enabled") is True
 
+    if hybrid_enabled and request.count != 3:
         raise HTTPException(
-            status_code=500,
-            detail=("Logo generation failed."),
+            status_code=400,
+            detail="Hybrid mode currently supports exactly 3 logos.",
         )
+
+    # Persist the same user settings the previous synchronous
+    # endpoint persisted.
+    if request.palette.strip():
+        project.generation_palette = request.palette.strip()
+
+    if request.custom_colors:
+        project.generation_custom_colors = json.dumps(
+            request.custom_colors
+        )
+    elif not project.generation_custom_colors:
+        project.generation_custom_colors = json.dumps([])
+
+    if request.logo_style.strip():
+        project.generation_logo_style = (
+            request.logo_style.strip()
+        )
+    elif not project.generation_logo_style:
+        project.generation_logo_style = project.style
+
+    if request.creative_prompt.strip():
+        project.generation_creative_prompt = (
+            request.creative_prompt.strip()
+        )
+
+    settings = {
+        "logo_style": request.logo_style,
+        "palette": request.palette,
+        "custom_colors": request.custom_colors,
+        "creative_prompt": request.creative_prompt,
+    }
+
+    job = LogoGenerationJob(
+        project_id=project.id,
+        status="queued",
+        requested_count=str(request.count),
+        settings_json=json.dumps(settings),
+        state_json=json.dumps(
+            {
+                "phase": "queued",
+                "completed": 0,
+                "requested": request.count,
+                "free_image_provider": "ai_horde_anonymous",
+                "paid_fallback": False,
+            }
+        ),
+        progress_message=(
+            "Logo generation queued using free anonymous AI Horde."
+        ),
+        error_message=None,
+    )
+
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    if hybrid_enabled:
+        settings["generation_mode"] = "hybrid_v1"
+        job.settings_json = json.dumps(settings)
+
+        state = json.loads(job.state_json or "{}")
+        state["generation_mode"] = "hybrid_v1"
+        job.state_json = json.dumps(state)
+        job.progress_message = "Hybrid logo generation queued."
+        db.commit()
+
+    worker = threading.Thread(
+        target=(
+            _run_hybrid_logo_generation_job
+            if hybrid_enabled
+            else _run_logo_generation_job
+        ),
+        args=(job.id,),
+        daemon=True,
+        name=f"logo-job-{job.id}",
+    )
+    worker.start()
+
+    print(
+        "[LOGO JOB] Queued:",
+        job.id,
+    )
+
+    return {
+        "message": "Logo generation queued.",
+        "job": _logo_job_to_dict(job),
+    }
+
+
+@app.get(
+    "/projects/{project_id}/logo-generation/{job_id}"
+)
+def get_logo_generation_job(
+    project_id: UUID,
+    job_id: UUID,
+    db: Session = Depends(get_db),
+):
+    job = (
+        db.query(LogoGenerationJob)
+        .filter(
+            LogoGenerationJob.id == job_id,
+            LogoGenerationJob.project_id == project_id,
+        )
+        .first()
+    )
+
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Logo generation job not found.",
+        )
+
+    payload = _logo_job_to_dict(job)
+
+    if job.status == "completed":
+        assets = (
+            db.query(Asset)
+            .filter(
+                Asset.project_id == project_id,
+                Asset.asset_type == "logo",
+            )
+            .order_by(Asset.created_at.desc())
+            .limit(int(job.requested_count or 3))
+            .all()
+        )
+
+        payload["concepts"] = [
+            asset_to_dict(asset)
+            for asset in reversed(assets)
+        ]
+
+    return {
+        "job": payload,
+    }
 
 
 # =========================================================
@@ -2426,3 +3317,129 @@ def get_brand_score(
             status_code=500,
             detail=("Could not evaluate " "brand identity."),
         )
+
+from pathlib import Path
+import json
+
+from fastapi import HTTPException, Depends
+from sqlalchemy.orm import Session
+from uuid import UUID
+
+from .database import get_db
+from .models import Project, Asset, BrandKit
+from .services.video_provider import generate_video
+
+
+@app.post("/projects/{project_id}/generate-video")
+def generate_project_video(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+):
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id)
+        .first()
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found.",
+        )
+
+    logo = (
+        db.query(Asset)
+        .filter(
+            Asset.project_id == project_id,
+            Asset.asset_type == "logo",
+            Asset.is_selected == True,
+        )
+        .first()
+    )
+
+    if not logo:
+        raise HTTPException(
+            status_code=400,
+            detail="Select a logo before generating a video.",
+        )
+
+    logo_filename = Path(
+        logo.url.split("/generated/")[-1]
+    ).name
+
+    logo_path = GENERATED_DIR / logo_filename
+
+    if not logo_path or not logo_path.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="Selected logo file is missing.",
+        )
+
+    kit = (
+        db.query(BrandKit)
+        .filter(BrandKit.project_id == project_id)
+        .first()
+    )
+
+    if not kit:
+        raise HTTPException(
+            status_code=400,
+            detail="Generate the brand identity first.",
+        )
+
+    try:
+        output_path = generate_video(
+            provider="local",
+            logo_path=logo_path,
+            output_directory=GENERATED_DIR,
+            business_name=project.business_name,
+            slogan=kit.slogan or "",
+            personality=kit.personality or "",
+            marketing_message=kit.marketing_message or "",
+            primary_color=kit.primary_color,
+            secondary_color=kit.secondary_color,
+            accent_color=kit.accent_color,
+        )
+
+        output_path = Path(output_path)
+
+        video_url = (
+            "http://127.0.0.1:8000"
+            f"/generated/{output_path.name}"
+        )
+
+        asset = Asset(
+            project_id=project.id,
+            asset_type="video",
+            url=video_url,
+            prompt="Local promotional brand video",
+            specification=json.dumps({
+                "provider": "local",
+                "generator": "moviepy_v2",
+                "logo_asset_id": str(logo.id),
+                "duration_seconds": 10,
+            }),
+            is_selected=False,
+        )
+
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+
+        return {
+            "message": "Promotional video generated successfully.",
+            "asset_id": str(asset.id),
+            "video_url": video_url,
+        }
+
+    except Exception as error:
+        db.rollback()
+
+        print("[VIDEO] Generation failed:", repr(error))
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Video generation failed: {error}",
+        )
+
+

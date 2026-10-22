@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "providers": [
+    "local",
+    "huggingface",
+    "pollinations"
+  ],
+  "concepts_per_batch": 3,
+  "max_requests_per_remote_provider": 1,
+  "automatic_retries": false,
+  "paid_fallback": false,
+  "pollinations_model": "openai/gpt-image-1-mini",
+  "pollinations_key_budget": 0.2,
+  "require_industry_relevance": true,
+  "add_typography_locally": true
+}

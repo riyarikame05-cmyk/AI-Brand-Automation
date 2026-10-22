@@ -280,9 +280,21 @@ export default function CreateBrandPage() {
         );
       }
 
+      const generationJobId = logoData?.job?.id;
+
+      if (!generationJobId) {
+        throw new Error(
+          "Server did not return a logo generation job ID."
+        );
+      }
+
       setStage("complete");
 
-      router.push(`/projects/${projectId}`);
+      router.push(
+        `/projects/${projectId}?logoJob=${encodeURIComponent(
+          generationJobId
+        )}`
+      );
     } catch (caughtError) {
       console.error(caughtError);
 

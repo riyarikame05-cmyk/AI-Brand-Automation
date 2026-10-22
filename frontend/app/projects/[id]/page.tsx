@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import BrandScorePanel from "../../components/BrandScorePanel";
 
 const API =
@@ -107,37 +107,6 @@ interface RefineLogoResponse {
 }
 
 // ======================================================
-// DESIGN DIRECTIONS
-// ======================================================
-
-const DIRECTIONS = [
-  {
-    name: "Minimal Geometric",
-    description: "Clean geometry with a strong, scalable silhouette.",
-  },
-  {
-    name: "Negative Space",
-    description: "A concept built around purposeful hidden space.",
-  },
-  {
-    name: "Monogram",
-    description: "A recognizable mark based on your brand initials.",
-  },
-  {
-    name: "Abstract Motion",
-    description: "A dynamic symbol expressing progress and movement.",
-  },
-  {
-    name: "Wordmark",
-    description: "A typography-led identity focused on the brand name.",
-  },
-  {
-    name: "Brand Emblem",
-    description: "A compact identity designed for versatile brand use.",
-  },
-];
-
-// ======================================================
 // HELPERS
 // ======================================================
 
@@ -232,8 +201,41 @@ function cleanPalette(palette?: Palette | null): Palette | null {
   };
 }
 
-function getDirection(index: number) {
-  return DIRECTIONS[index % DIRECTIONS.length];
+function getConceptIdentity(logo: Asset) {
+  const specification = logo.specification;
+
+  const aiConcept =
+    specification &&
+    typeof specification === "object" &&
+    specification.ai_concept &&
+    typeof specification.ai_concept === "object"
+      ? (specification.ai_concept as Record<string, unknown>)
+      : null;
+
+  const read = (key: string) => {
+    const value = aiConcept?.[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
+
+  const legacyName =
+    specification &&
+    typeof specification === "object" &&
+    typeof specification.concept_name === "string"
+      ? specification.concept_name.trim()
+      : "";
+
+  const name =
+    read("concept_name") ||
+    legacyName ||
+    "AI Logo Concept";
+
+  const description =
+    read("distinctive_idea") ||
+    read("business_transformation") ||
+    read("visual_metaphor") ||
+    "A business-specific identity concept developed from your brand brief.";
+
+  return { name, description };
 }
 
 function dateValue(value?: string) {
@@ -252,7 +254,17 @@ function dateValue(value?: string) {
 
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const projectId = params?.id;
+
+  const initialLogoJobId =
+    searchParams.get("logoJob");
+
+  const [logoJobId, setLogoJobId] =
+    useState<string | null>(initialLogoJobId);
+
+  const [logoJobMessage, setLogoJobMessage] =
+    useState("");
 
   const [project, setProject] =
     useState<Project | null>(null);
@@ -269,6 +281,7 @@ export default function ProjectPage() {
   const [generating, setGenerating] =
     useState(false);
 
+  const [generatingVideo, setGeneratingVideo] = useState(false);
   const [selectingLogo, setSelectingLogo] =
     useState<string | null>(null);
 
@@ -448,6 +461,131 @@ export default function ProjectPage() {
   }, [loadData]);
 
   // ======================================================
+  // ASYNC LOGO GENERATION POLLING
+  // ======================================================
+
+  useEffect(() => {
+    if (!projectId || !logoJobId) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const response = await fetch(
+          `${API}/projects/${projectId}/logo-generation/${logoJobId}`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            await getErrorMessage(
+              response,
+              "Could not read logo generation status."
+            )
+          );
+        }
+
+        const data = await response.json();
+        const job = data?.job;
+
+        if (cancelled || !job) {
+          return;
+        }
+
+        const status = String(job.status || "");
+        const message = String(
+          job.progress_message || ""
+        );
+
+        setLogoJobMessage(message);
+
+        if (
+          status === "queued" ||
+          status === "running"
+        ) {
+          setGenerating(true);
+
+          timer = setTimeout(
+            () => void poll(),
+            5000
+          );
+          return;
+        }
+
+        if (status === "completed") {
+          setGenerating(false);
+          setLogoJobId(null);
+
+          await loadData(false);
+
+          const completed = Number(
+            job?.state?.completed || 0
+          );
+
+          setSuccessMessage(
+            completed > 0
+              ? `${completed} new logo concept${
+                  completed === 1 ? "" : "s"
+                } completed.`
+              : "Logo generation completed."
+          );
+
+          return;
+        }
+
+        if (status === "failed") {
+          setGenerating(false);
+          setLogoJobId(null);
+
+          setError(
+            job.error_message ||
+              "Logo generation failed."
+          );
+
+          return;
+        }
+
+        timer = setTimeout(
+          () => void poll(),
+          5000
+        );
+      } catch (err) {
+        if (cancelled) return;
+
+        console.error(
+          "Logo generation status error:",
+          err
+        );
+
+        setLogoJobMessage(
+          "Generation is still running; reconnecting..."
+        );
+
+        timer = setTimeout(
+          () => void poll(),
+          10000
+        );
+      }
+    };
+
+    setGenerating(true);
+    void poll();
+
+    return () => {
+      cancelled = true;
+
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [projectId, logoJobId, loadData]);
+
+  // ======================================================
   // GENERATE MORE
   // ======================================================
 
@@ -500,28 +638,24 @@ export default function ProjectPage() {
         );
       }
 
-      const data: GenerateLogoResponse =
-        await response.json();
+      const data = await response.json();
+      const jobId = data?.job?.id;
 
-      const concepts =
-        data.concepts ?? [];
-
-      if (concepts.length === 0) {
+      if (!jobId) {
         throw new Error(
-          "The server returned no logo concepts."
+          "The server returned no logo generation job ID."
         );
       }
 
-      // Reload because backend asset ordering is newest first.
-      // We sort explicitly below.
-      await loadData(false);
+      setLogoJobMessage(
+        data?.job?.progress_message ||
+          "Logo generation queued using free anonymous AI capacity."
+      );
+
+      setLogoJobId(String(jobId));
 
       setSuccessMessage(
-        `${concepts.length} new logo concept${
-          concepts.length === 1
-            ? ""
-            : "s"
-        } created locally.`
+        "Logo generation started. Results will appear automatically when ready."
       );
     } catch (err) {
       console.error(
@@ -535,7 +669,11 @@ export default function ProjectPage() {
           : "Logo generation failed."
       );
     } finally {
-      setGenerating(false);
+      // Keep the generating state active while a persistent
+      // background job is being polled.
+      if (!logoJobId) {
+        setGenerating(false);
+      }
     }
   }
 
@@ -686,22 +824,94 @@ export default function ProjectPage() {
     }
   }
 
+  async function generatePromotionalVideo() {
+    if (!projectId || !selectedLogo || !brandKit) {
+      setError("Select a logo and generate your brand identity first.");
+      return;
+    }
+
+    try {
+      setGeneratingVideo(true);
+      setError("");
+      setSuccessMessage("");
+
+      const response = await fetch(
+        `${API}/projects/${projectId}/generate-video`,
+        {
+          method: "POST",
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Could not generate promotional video."
+          )
+        );
+      }
+
+      await loadData(false);
+
+      setSuccessMessage(
+        "Promotional video generated successfully."
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Video generation failed."
+      );
+    } finally {
+      setGeneratingVideo(false);
+    }
+  }
+
   // ======================================================
   // DERIVED DATA
   // ======================================================
 
   const logos = useMemo(() => {
-    return assets
-      .filter(
-        (asset) =>
-          asset.asset_type === "logo"
-      )
-      .slice()
-      .sort(
-        (a, b) =>
-          dateValue(a.created_at) -
-          dateValue(b.created_at)
+    const logoAssets = assets.filter(
+      (asset) => asset.asset_type === "logo"
+    );
+
+    return logoAssets.slice().sort((a, b) => {
+      const jobA = String(
+        a.specification?.hybrid_job_id ?? ""
       );
+
+      const jobB = String(
+        b.specification?.hybrid_job_id ?? ""
+      );
+
+      const latestJob =
+        "eb1b54dc-85aa-4940-9fe5-908cb679914a";
+
+      const aIsLatest = jobA === latestJob;
+      const bIsLatest = jobB === latestJob;
+
+      if (aIsLatest !== bIsLatest) {
+        return aIsLatest ? -1 : 1;
+      }
+
+      if (aIsLatest && bIsLatest) {
+        return (
+          Number(
+            a.specification?.concept_number ?? 0
+          ) -
+          Number(
+            b.specification?.concept_number ?? 0
+          )
+        );
+      }
+
+      return (
+        dateValue(b.created_at) -
+        dateValue(a.created_at)
+      );
+    });
   }, [assets]);
 
   const videos = useMemo(() => {
@@ -1072,10 +1282,9 @@ export default function ProjectPage() {
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-zinc-500">
-                    Ollama is creating the
-                    design specifications and
-                    the local renderer is
-                    building your logos.
+                    Gemini is developing business-specific
+                    concepts while the image model generates and
+                    evaluates each visual direction.
                   </p>
                 </div>
               </div>
@@ -1096,7 +1305,7 @@ export default function ProjectPage() {
                     logo.id;
 
                   const direction =
-                    getDirection(index);
+                    getConceptIdentity(logo);
 
                   const palette =
                     cleanPalette(
@@ -1272,7 +1481,7 @@ export default function ProjectPage() {
 
               <p className="mt-2 text-sm text-zinc-500">
                 Generate your first three
-                local AI logo directions.
+                business-specific AI logo concepts.
               </p>
 
               <button
@@ -1796,6 +2005,18 @@ export default function ProjectPage() {
             </div>
 
             <div className="mt-5 overflow-hidden rounded-[24px] border border-white/90 bg-white/90 shadow-[0_15px_45px_rgba(24,24,27,0.06)]">
+              <button
+                type="button"
+                onClick={generatePromotionalVideo}
+                disabled={!selectedLogo || !brandKit || generatingVideo}
+                className="mb-4 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {generatingVideo
+                  ? "Rendering promotional video..."
+                  : latestVideo
+                    ? "Regenerate Promotional Video"
+                    : "Generate Promotional Video"}
+              </button>
               {selectingLogo && (
                 <div className="flex min-h-[280px] items-center justify-center bg-zinc-950 p-8 text-center">
                   <div>

@@ -24,6 +24,9 @@ def generate_logo_image(
     creative_prompt: str = "",
     use_ai_specification: bool = True,
     art_direction: dict | None = None,
+    semantic_territory: dict | None = None,
+    accepted_visual_history: list[dict] | None = None,
+    horde_execution_context: dict | None = None,
 ) -> dict:
     """
     Generate one complete logo concept.
@@ -174,16 +177,16 @@ def generate_logo_image(
         if strategy in allowed_strategies:
             specification["identity_strategy"] = strategy
 
-        semantic_territory = str(
+        legacy_semantic_territory = str(
             art_direction.get(
                 "semantic_territory",
                 "",
             )
         ).strip()
-        if semantic_territory:
+        if legacy_semantic_territory:
             specification[
                 "semantic_territory"
-            ] = semantic_territory
+            ] = legacy_semantic_territory
 
         industry_form = str(
             art_direction.get(
@@ -297,6 +300,8 @@ def generate_logo_image(
     # Catalog rendering is introduced only after a master has passed
     # ingestion and visual approval. Until then the proven hybrid/local
     # renderer remains the production fallback.
+    generation_metadata = {}
+
     image_bytes = (
         generate_image(
             provider=provider,
@@ -305,8 +310,41 @@ def generate_logo_image(
             business_name=business_name,
             industry=industry,
             style=style,
+            description=description,
+            direction_index=direction_index,
+            palette_name=palette_name,
+            custom_colors=custom_colors,
+            creative_prompt=creative_prompt,
+            semantic_territory=semantic_territory,
+            accepted_visual_history=accepted_visual_history,
+            horde_execution_context=horde_execution_context,
+            generation_metadata=generation_metadata,
         )
     )
+
+    ai_concept = generation_metadata.get("ai_concept")
+    if isinstance(ai_concept, dict):
+        specification["ai_concept"] = ai_concept
+
+        # Promote a few useful semantic fields for compatibility with
+        # existing quality/persistence code.
+        concept_name = str(
+            ai_concept.get("concept_name", "")
+        ).strip()
+        if concept_name:
+            specification["concept_name"] = concept_name
+
+        domain_signal = str(
+            ai_concept.get("domain_signal", "")
+        ).strip()
+        if domain_signal:
+            specification["industry_form"] = domain_signal
+
+        distinctive_idea = str(
+            ai_concept.get("distinctive_idea", "")
+        ).strip()
+        if distinctive_idea:
+            specification["semantic_territory"] = distinctive_idea
 
     # =====================================================
     # 3. VALIDATE RETURNED IMAGE
@@ -338,9 +376,49 @@ def generate_logo_image(
         f"({len(image_bytes)} bytes)"
     )
 
+    # Expose Gemini Vision's judgment of the actual selected pixels
+    # to the batch selector. Raster quality must not override Vision.
+    ai_concept = specification.get(
+        "ai_concept",
+        {},
+    )
+
+    vision_review = (
+        ai_concept.get("vision_review", {})
+        if isinstance(ai_concept, dict)
+        else {}
+    )
+
+    vision_passed = bool(
+        isinstance(ai_concept, dict)
+        and ai_concept.get("selected_by_vision") is True
+        and isinstance(vision_review, dict)
+        and str(
+            vision_review.get("decision", "")
+        ).strip().upper() == "PASS"
+    )
+
+    try:
+        vision_score = float(
+            vision_review.get(
+                "average_score",
+                0,
+            )
+        )
+    except (TypeError, ValueError):
+        vision_score = 0.0
+
+    print(
+        "[IMAGE GENERATOR] Vision outcome: "
+        f"passed={vision_passed}, "
+        f"score={vision_score:.2f}"
+    )
+
     return {
         "image_bytes": bytes(
             image_bytes
         ),
         "specification": specification,
+        "vision_passed": vision_passed,
+        "vision_score": vision_score,
     }

@@ -408,6 +408,14 @@ def build_parameters(specification):
         "industry_family": str(
             specification.get("industry_family") or "other"
         ).strip().lower(),
+        "industry_label": str(
+            specification.get("industry_label") or ""
+        ).strip(),
+        "logo_elements": tuple(
+            str(element).strip().lower()
+            for element in specification.get("logo_elements", ())
+            if str(element).strip()
+        ),
         "industry_subtype": str(
             specification.get("industry_subtype") or ""
         ).strip().lower(),
@@ -3308,6 +3316,7 @@ def _draw_v42_semantic_symbol(
     mode = parameters.get("metaphor_mode", "")
     motif = parameters.get("semantic_motif", "none")
     family = parameters.get("industry_family", "other")
+    logo_elements = tuple(parameters.get("logo_elements", ()))
 
     if mode not in {"industry-symbol", "conceptual"}:
         return False
@@ -3325,6 +3334,187 @@ def _draw_v42_semantic_symbol(
     secondary = parameters["secondary"]
     accent = parameters["accent"]
     background = _premium_background(parameters)
+    
+        # --------------------------------------------------------
+    # MANUFACTURING / ENGINEERING
+    #
+    # Recognizable mechanical geometry, but constructed as a
+    # compact brand mark rather than a detailed stock illustration.
+    # The supplied element vocabulary determines the available
+    # visual language.
+    # --------------------------------------------------------
+    if family == "manufacturing-engineering":
+        available = set(logo_elements)
+
+        # Deterministically alternate between a precision gear and
+        # a simplified factory/engineering construction. This gives
+        # separate generations recognizable variety without randomness.
+        prefer_factory = (
+            "factory" in available
+            and int(seed) % 2 == 1
+        )
+
+        if prefer_factory:
+            # ------------------------------------------------
+            # FACTORY / PRECISION FABRICATION MARK
+            # ------------------------------------------------
+            left = cx - scale * 0.31
+            right = cx + scale * 0.31
+            top = cy - scale * 0.24
+            bottom = cy + scale * 0.27
+
+            # Strong industrial base silhouette.
+            factory_points = [
+                (left, bottom),
+                (left, cy - scale * 0.04),
+                (cx - scale * 0.12, cy - scale * 0.20),
+                (cx - scale * 0.12, cy - scale * 0.04),
+                (cx + scale * 0.06, cy - scale * 0.20),
+                (cx + scale * 0.06, cy - scale * 0.04),
+                (right, cy - scale * 0.18),
+                (right, bottom),
+            ]
+
+            draw.polygon(
+                [
+                    (int(px), int(py))
+                    for px, py in factory_points
+                ],
+                fill=primary,
+            )
+
+            # Precision-machined negative-space openings.
+            opening_w = scale * 0.095
+            opening_h = scale * 0.16
+
+            for offset in (-0.15, 0.0, 0.15):
+                opening_cx = cx + scale * offset
+
+                draw.rectangle(
+                    (
+                        int(opening_cx - opening_w / 2),
+                        int(cy + scale * 0.055),
+                        int(opening_cx + opening_w / 2),
+                        int(cy + scale * 0.055 + opening_h),
+                    ),
+                    fill=background,
+                )
+
+            # Engineering datum/base line.
+            draw.line(
+                [
+                    (
+                        int(left - scale * 0.04),
+                        int(bottom + scale * 0.055),
+                    ),
+                    (
+                        int(right + scale * 0.04),
+                        int(bottom + scale * 0.055),
+                    ),
+                ],
+                fill=accent,
+                width=max(10, int(scale * 0.025)),
+            )
+
+            # Small technical registration point adds an engineered,
+            # intentional detail without reducing small-size clarity.
+            point_r = scale * 0.035
+
+            draw.ellipse(
+                (
+                    int(right - point_r),
+                    int(top - point_r),
+                    int(right + point_r),
+                    int(top + point_r),
+                ),
+                fill=secondary,
+            )
+
+            return True
+
+        # ----------------------------------------------------
+        # GEAR / PRECISION ENGINEERING MARK
+        # ----------------------------------------------------
+        outer_r = scale * 0.30
+        root_r = scale * 0.235
+        inner_r = scale * 0.105
+
+        teeth = 8
+        gear_points = []
+
+        # Four points per tooth produce a clean machined silhouette:
+        # root -> outer leading edge -> outer trailing edge -> root.
+        for tooth in range(teeth):
+            base_angle = (
+                -math.pi / 2
+                + tooth * (2 * math.pi / teeth)
+            )
+
+            for angle_offset, radius in (
+                (-0.30, root_r),
+                (-0.21, outer_r),
+                (0.21, outer_r),
+                (0.30, root_r),
+            ):
+                angle = (
+                    base_angle
+                    + angle_offset * (2 * math.pi / teeth)
+                )
+
+                gear_points.append(
+                    (
+                        int(cx + math.cos(angle) * radius),
+                        int(cy + math.sin(angle) * radius),
+                    )
+                )
+
+        draw.polygon(
+            gear_points,
+            fill=primary,
+        )
+
+        # Inner machined hub.
+        draw.ellipse(
+            (
+                int(cx - root_r * 0.72),
+                int(cy - root_r * 0.72),
+                int(cx + root_r * 0.72),
+                int(cy + root_r * 0.72),
+            ),
+            fill=secondary,
+        )
+
+        # Strong negative-space bore keeps the mark recognizable
+        # when reduced to favicon/logo-preview sizes.
+        draw.ellipse(
+            (
+                int(cx - inner_r),
+                int(cy - inner_r),
+                int(cx + inner_r),
+                int(cy + inner_r),
+            ),
+            fill=background,
+        )
+
+        # Precision index detail.
+        index_w = max(8, int(scale * 0.020))
+
+        draw.line(
+            [
+                (
+                    int(cx + inner_r * 1.35),
+                    int(cy),
+                ),
+                (
+                    int(cx + root_r * 0.62),
+                    int(cy),
+                ),
+            ],
+            fill=accent,
+            width=index_w,
+        )
+
+        return True
 
     # --------------------------------------------------------
     # COFFEE / FOOD ? organic bean / steam language
@@ -4516,7 +4706,25 @@ def render_png(
     direction = p["direction"]
 
     if direction == "minimal-geometric":
-        _draw_minimal_geometric(canvas, p)
+        semantic_box = (
+            _scaled(330),
+            _scaled(100),
+            _scaled(870),
+            _scaled(640),
+        )
+
+        semantic_drawn = _draw_v42_semantic_symbol(
+            canvas,
+            p,
+            business_name,
+            semantic_box,
+        )
+
+        if not semantic_drawn:
+            _draw_minimal_geometric(
+                canvas,
+                p,
+            )
     elif direction == "negative-space":
         _draw_negative_space(canvas, p)
     elif direction == "monogram":
