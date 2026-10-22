@@ -110,3 +110,29 @@ backend/sonnet_svg_tests*/
 backend/*.jpg
 backend/*.png
 backend/*.txt
+
+# Local development backups
+*.bak
+*.bak.*
+*.backup-*
+*.pre-fallback
+*.pre-zero-token
+*.working-gemini-flux
+*.video-backup-*
+*.cinematic-backup-*
+*.premium-backup-*
+
+# Local video footage
+backend/video_footage/
+
+# Experimental outputs
+backend/app_backup_*/
+backend/ai_logo_selection_test/
+backend/evara_*/
+backend/gemini_flux_logos/
+backend/gemini_pollinations_test/
+backend/gemini_vector_test/
+backend/industry_business_test/
+backend/integrated_six_test/
+backend/renderer_industry_tests/
+backend/sonnet_svg_tests*/
