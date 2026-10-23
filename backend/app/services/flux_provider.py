@@ -1,4 +1,4 @@
-import random
+﻿import random
 from urllib.parse import quote
 
 import requests
@@ -13,6 +13,7 @@ POLLINATIONS_URL = "https://image.pollinations.ai/prompt"
 
 def _request_flux_image(
     prompt: str,
+    timeout: int = 180,
 ) -> bytes:
 
     seed = random.randint(
@@ -37,7 +38,7 @@ def _request_flux_image(
     response = requests.get(
         url,
         params=params,
-        timeout=180,
+        timeout=timeout,
     )
 
     response.raise_for_status()
@@ -199,6 +200,6 @@ def generate_flux_campaign(
         "no logo"
     )
 
-    return _request_flux_image(
-        prompt
-    )
+    return _request_flux_image(prompt, timeout=25)
+
+
