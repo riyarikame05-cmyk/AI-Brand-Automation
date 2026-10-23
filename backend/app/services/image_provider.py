@@ -1051,15 +1051,8 @@ def generate_image(
         # -------------------------------------------------
 
         if purpose == "campaign":
-            try:
-                print("[IMAGE] Trying FLUX/Pollinations for campaign image...")
-                result = generate_flux_image(**kwargs)
-                print("[IMAGE] Campaign generation succeeded.")
-                return result
-            except Exception as error:
-                print("[IMAGE] Remote campaign generation failed:", repr(error))
-                print("[IMAGE] Using offline campaign fallback.")
-                return generate_local_campaign(**kwargs)
+            print("[IMAGE] Generating campaign poster locally.")
+            return generate_local_campaign(**kwargs)
         raise ValueError(
             f"Unknown image purpose: {purpose}"
         )
@@ -1067,5 +1060,8 @@ def generate_image(
     raise ValueError(
         f"Unknown image provider: {selected}"
     )
+
+
+
 
 
