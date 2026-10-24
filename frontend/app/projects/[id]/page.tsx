@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   type ReactNode,
@@ -1166,7 +1166,7 @@ export default function ProjectPage() {
 
               {selectedLogo && (
                 <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                  ✓ Identity selected
+                  âœ“ Identity selected
                 </span>
               )}
             </div>
@@ -1185,7 +1185,7 @@ export default function ProjectPage() {
               href={`/projects/${projectId}/tools`}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-700 hover:shadow-md"
             >
-              <span>✦</span>
+              <span>âœ¦</span>
               Creative Tools
               <span>&rarr;</span>
             </Link>
@@ -1233,7 +1233,7 @@ export default function ProjectPage() {
                 role="status"
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm text-emerald-700"
               >
-                ✓ {successMessage}
+                âœ“ {successMessage}
               </div>
             )}
           </section>
@@ -1337,7 +1337,7 @@ export default function ProjectPage() {
 
                         {selected && (
                           <span className="absolute right-4 top-4 z-10 rounded-full bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white">
-                            ✓ Selected
+                            âœ“ Selected
                           </span>
                         )}
 
@@ -1460,7 +1460,7 @@ export default function ProjectPage() {
                           {selecting
                             ? "Building identity..."
                             : selected
-                              ? "✓ Selected direction"
+                              ? "âœ“ Selected direction"
                               : "Choose this direction"}
                         </button>
                       </div>
@@ -1472,7 +1472,7 @@ export default function ProjectPage() {
           ) : (
             <div className="mt-7 rounded-[22px] border border-dashed border-violet-200 bg-white/70 px-6 py-16 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-lg text-violet-600">
-                ◇
+                â—‡
               </div>
 
               <h3 className="mt-5 text-base font-semibold text-zinc-900">
@@ -1972,7 +1972,7 @@ export default function ProjectPage() {
 
                     {brandKit.slogan && (
                       <h3 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] sm:text-4xl">
-                        “{brandKit.slogan}”
+                        â€œ{brandKit.slogan}â€Â
                       </h3>
                     )}
 
@@ -2039,7 +2039,7 @@ export default function ProjectPage() {
                       controls
                       playsInline
                       preload="metadata"
-                      className="mx-auto max-h-[620px] w-full rounded-xl bg-black object-contain"
+                      className="mx-auto max-h-[500px] w-full max-w-[500px] rounded-xl bg-black object-contain"
                     >
                       <source
                         src={getAssetUrl(latestVideo.url)}
@@ -2057,7 +2057,7 @@ export default function ProjectPage() {
                       </p>
 
                       <p className="mt-0.5 text-xs text-zinc-400">
-                        MP4 · Generated from selected identity
+                        MP4 Â· Generated from selected identity
                       </p>
                     </div>
 
@@ -2078,7 +2078,7 @@ export default function ProjectPage() {
                 <div className="flex min-h-[260px] items-center justify-center p-8 text-center">
                   <div>
                     <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-50 text-fuchsia-600">
-                      ▶
+                      â–¶
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-zinc-800">
@@ -2146,7 +2146,7 @@ export default function ProjectPage() {
             title="Brand identity"
             value={
               selectedLogo
-                ? "Selected ✓"
+                ? "Selected âœ“"
                 : "Awaiting selection"
             }
           />
@@ -2203,7 +2203,7 @@ function StudioCard({
 
         {badge && (
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-            ✓ {badge}
+            âœ“ {badge}
           </span>
         )}
       </div>
@@ -2284,7 +2284,7 @@ function ColorCard({
       </div>
 
       <span className="ml-auto text-[11px] font-medium text-zinc-400 transition group-hover:text-violet-600">
-        {copied ? "Copied ✓" : "Copy"}
+        {copied ? "Copied âœ“" : "Copy"}
       </span>
     </button>
   );
@@ -2321,3 +2321,4 @@ function SummaryCard({
     </div>
   );
 }
+
